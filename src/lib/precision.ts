@@ -71,7 +71,7 @@ export function solveRate(
   }
 
   const exact = expected.div(divisor);
-  const exactDisplay = renderExact(exact);
+  const exactDisplay = renderExactRate(exact);
 
   const from = Math.max(0, Math.min(minDecimalPlaces, maxDecimalPlaces));
   const to = Math.max(from, maxDecimalPlaces);
@@ -142,7 +142,11 @@ export function reconstructPrice(
   return roundToWon(area.times(qty).times(rate));
 }
 
-function renderExact(exact: Dec): string {
+/**
+ * Render a rate for display: up to EXACT_DISPLAY_DP decimals, suffixed with '…'
+ * when digits had to be elided so a truncated value is never mistaken for exact.
+ */
+export function renderExactRate(exact: Dec): string {
   const shown = toPlainString(exact, EXACT_DISPLAY_DP, true);
   return new D(shown).equals(exact) ? shown : `${shown}…`;
 }

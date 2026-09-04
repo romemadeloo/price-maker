@@ -4,6 +4,7 @@ import SummaryCards from './components/SummaryCards';
 import ValidationTable from './components/ValidationTable';
 import RateTable from './components/RateTable';
 import CsvPreview from './components/CsvPreview';
+import Calculator from './components/Calculator';
 import ImportDialog from './components/ImportDialog';
 import { runEngine } from './lib/engine';
 import { parseDelimited } from './lib/parse';
@@ -18,11 +19,12 @@ import {
 import { buildSampleSheet } from './state/sampleData';
 import { DEFAULT_ENGINE_OPTIONS, type EngineOptions, type SheetState } from './types';
 
-type Tab = 'table' | 'rates' | 'validation' | 'csv';
+type Tab = 'table' | 'rates' | 'calculator' | 'validation' | 'csv';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'table', label: 'Price Table' },
   { id: 'rates', label: 'Price Per mm²' },
+  { id: 'calculator', label: 'Calculator' },
   { id: 'validation', label: 'Validation' },
   { id: 'csv', label: 'CSV Preview' },
 ];
@@ -173,6 +175,8 @@ export default function App() {
         )}
 
         {tab === 'rates' && <RateTable result={result} />}
+
+        {tab === 'calculator' && <Calculator result={result} options={options} />}
 
         {tab === 'validation' && <ValidationTable result={result} onGoToCell={goToCell} />}
 
