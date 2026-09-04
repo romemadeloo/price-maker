@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: #f8fafc;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Compact, dense scrollbars so the grid feels like a spreadsheet. */
+*::-webkit-scrollbar { width: 12px; height: 12px; }
+*::-webkit-scrollbar-track { background: #f1f5f9; }
+*::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; border: 3px solid #f1f5f9; }
+*::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium
+           transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-default { @apply border-slate-300 bg-white text-slate-700 hover:bg-slate-50; }
+  .btn-primary { @apply border-blue-600 bg-blue-600 text-white hover:bg-blue-700; }
+  .btn-danger  { @apply border-red-300 bg-white text-red-700 hover:bg-red-50; }
+  .btn-warn    { @apply border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100; }
+}
