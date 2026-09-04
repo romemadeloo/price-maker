@@ -246,6 +246,22 @@ decision to you.
 
 ---
 
+## Deploying
+
+The app is a static build — no backend, no environment variables, no secrets.
+
+Vercel auto-detects Vite, and `vercel.json` pins the settings explicitly:
+`npm ci` -> `npm run build` -> serve `dist/`, with hashed assets under
+`/assets/*` marked immutable for a year.
+
+To deploy: **vercel.com/new** -> import `romemadeloo/price-maker` -> Deploy.
+Every push to `main` then redeploys automatically.
+
+Pricing data stays in the browser either way: nothing is uploaded, and the app
+makes no network calls after the page loads.
+
+---
+
 ## Tests
 
 ```bash
