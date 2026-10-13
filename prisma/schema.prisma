@@ -1,0 +1,38 @@
+// Shared workspace storage: one row per product draft, one per production snapshot.
+// See api/_lib/prismaStore.ts for how these are read and written.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A product's drafted price table. The row outlives a deletion (record = null)
+/// so the version keeps counting and other browsers notice the delete.
+model Draft {
+  /// Product slug, e.g. "die-cut-sticker".
+  slug      String   @id
+  /// Bumped on every save. A save names the version it was based on and only
+  /// lands if that is still current — see writeDraft.
+  version   Int
+  /// JSON: { sheet, updatedAt, updatedBy }. Null once the draft is deleted.
+  record    String?
+  updatedAt DateTime @updatedAt
+
+  @@map("drafts")
+}
+
+/// The last production prices fetched for a product.
+model Snapshot {
+  slug      String   @id
+  /// JSON: { fetchedAt, savedAt, quotes }.
+  record    String
+  /// savedAt — compared by clients to tell which copy is newer.
+  stamp     String
+  updatedAt DateTime @updatedAt
+
+  @@map("snapshots")
+}

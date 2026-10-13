@@ -97,7 +97,7 @@ export async function handleWorkspace(
     return error(
       503,
       'not-configured',
-      'Shared storage is not set up. Add Upstash for Redis to the Vercel project to enable it.',
+      'Shared storage is not set up. Connect a Postgres database (DATABASE_URL) to enable it.',
     );
   }
 

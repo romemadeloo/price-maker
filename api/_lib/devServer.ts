@@ -3,12 +3,13 @@ import { dirname, resolve } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import { handleWorkspace } from './handler.js';
-import { emptyStoreData, memoryStore, redisStoreFromEnv, type StoreData, type WorkspaceStore } from './store.js';
+import { prismaStoreFromEnv } from './prismaStore.js';
+import { emptyStoreData, memoryStore, type StoreData, type WorkspaceStore } from './store.js';
 
 /**
  * Serves /api/workspace from `vite` and `vite preview`, so the shared
- * workspace works locally without the Vercel CLI. Uses Redis when its env vars
- * are set (to test against the real store), otherwise `.data/workspace.json`.
+ * workspace works locally without the Vercel CLI. Uses Postgres when
+ * DATABASE_URL is set (in the shell or .env), otherwise `.data/workspace.json`.
  */
 
 function fileStore(path: string): WorkspaceStore {
@@ -44,7 +45,7 @@ export function workspaceApi(): Plugin {
 
   const middleware = async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
     if (!req.url?.startsWith('/api/workspace')) return next();
-    store ??= redisStoreFromEnv(process.env) ?? fileStore(resolve(process.cwd(), '.data/workspace.json'));
+    store ??= prismaStoreFromEnv(process.env) ?? fileStore(resolve(process.cwd(), '.data/workspace.json'));
     const response = await handleWorkspace(await toRequest(req), store, { passcode: process.env.PRICER_PASSCODE });
     res.statusCode = response.status;
     response.headers.forEach((value, key) => res.setHeader(key, value));

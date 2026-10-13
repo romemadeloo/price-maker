@@ -152,7 +152,13 @@ src/
     workspace.ts            Per-product drafts + snapshots, local cache, merge rules
 api/
   workspace.ts              Vercel function: the shared workspace
-  _lib/store.ts             Upstash Redis (REST) + in-memory/file stores
+  _lib/store.ts             Store interface + in-memory/file stores (tests, local dev)
+  _lib/prismaStore.ts       Postgres store via Prisma
+prisma/
+  schema.prisma             drafts + snapshots tables
+  migrations/               SQL applied by prisma migrate deploy
+scripts/
+  migrate.mjs               Runs migrations on deploy when a database is set
   _lib/handler.ts           Request handling, validation, version checks
   _lib/devServer.ts         Serves the same API from vite dev/preview
     sheetReducer.ts         Grid state: edits, paste, rows, columns
@@ -448,13 +454,32 @@ the URL works in it.
 
 ### Setting it up on Vercel (once)
 
-1. In the Vercel project: **Storage → Marketplace → Upstash for Redis → Create**
-   and connect it to this project. The free tier is plenty. This adds the
-   `KV_REST_API_URL` / `KV_REST_API_TOKEN` environment variables.
-2. Redeploy. The sidebar should read *Shared — everyone sees these drafts*.
+Drafts are stored in Postgres through [Prisma](https://www.prisma.io)
+(`prisma/schema.prisma`: a `drafts` and a `snapshots` table).
 
-Until step 1 is done, the sidebar says *Shared storage not set up — this browser
-only* and the app behaves as before, saving in the browser alone.
+1. Create a database and connect it to the Vercel project — either:
+   - **Vercel → Storage → Create Database → Prisma Postgres**, connected to this
+     project (sign in with the Prisma account), which sets `DATABASE_URL`; or
+   - in the **Prisma Console**, create a Prisma Postgres database, copy its
+     **direct** connection string (`postgres://…`), and add it in Vercel →
+     Settings → Environment Variables as `DATABASE_URL`.
+   Any other Postgres works the same way.
+2. Redeploy. The build runs `prisma migrate deploy` (`scripts/migrate.mjs`),
+   which creates the tables, then the sidebar should read *Shared — everyone
+   sees these drafts*.
+
+Use the direct `postgres://` URL, not the `prisma+postgres://` Accelerate URL:
+the app looks for a direct one in `DATABASE_URL`, `POSTGRES_URL` or
+`POSTGRES_PRISMA_URL`, in that order.
+
+Until a database is connected, the build skips migrations, the sidebar says
+*Shared storage not set up — this browser only*, and the app saves in each
+browser alone.
+
+Migrations run on every deploy that has the variable, preview deploys
+included — so if Preview and Production share one database, a branch's schema
+change reaches it before merge. Scope `DATABASE_URL` to Production only (or
+give Preview its own database) if that matters.
 
 **Optional passcode.** Without one, anyone who has the URL can read and edit
 the drafts. To require a shared team passcode, add a `PRICER_PASSCODE`
@@ -463,9 +488,14 @@ browser. It is a single shared secret, not a login.
 
 ### Locally
 
-`npm run dev` and `npm run preview` serve the same API from the Vite server and
-store the workspace in `.data/workspace.json` (git-ignored). Set the Redis env
-vars locally to work against the real store instead.
+`npm run dev` and `npm run preview` serve the same API from the Vite server.
+Without a database they store the workspace in `.data/workspace.json`
+(git-ignored). To use Postgres locally, copy `.env.example` to `.env` and set
+`DATABASE_URL` (`.env` is git-ignored), then `npx prisma migrate deploy`. For a
+throwaway local Postgres: `npx prisma dev --detach` prints one.
+
+Changing the schema: edit `prisma/schema.prisma`, then `npm run db:migrate`
+against a development database to create the migration, and commit it.
 
 The API (`api/workspace.ts`, logic in `api/_lib/`):
 
@@ -477,8 +507,11 @@ PUT  /api/workspace?slug=x&kind=draft     { sheet | null, baseVersion, updatedBy
 PUT  /api/workspace?slug=x&kind=snapshot  { fetchedAt, savedAt, quotes }
 ```
 
-The version check and the write happen in one Lua script in Redis, so two saves
-landing at the same moment cannot both win.
+The version check and the write are one statement —
+`UPDATE drafts … WHERE slug = ? AND version = ?` (or the INSERT of a first save,
+guarded by the primary key) — so two saves landing at the same moment cannot
+both win. `src/__tests__/prismaStore.test.ts` checks exactly that against a real
+Postgres when `PRICER_TEST_DATABASE_URL` is set (it is skipped otherwise).
 
 ---
 
@@ -511,7 +544,8 @@ decision to you.
 
 The app is a static build plus one Vercel function (`api/workspace.ts`) for
 the shared drafts, and a rewrite that proxies `/api/musticker/*` to the
-production quotation API. See *Shared drafts* for the one-time Redis setup.
+production quotation API. See *Shared drafts* for the one-time database setup.
+The Vercel build command is `npm run vercel-build` (migrations, then build).
 
 Vercel auto-detects Vite, and `vercel.json` pins the settings explicitly:
 `npm ci` -> `npm run build` -> serve `dist/`, with hashed assets under
