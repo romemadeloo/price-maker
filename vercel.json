@@ -14,5 +14,11 @@
         }
       ]
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/musticker/:path*",
+      "destination": "https://api.musticker.com/index.php/sys/kr/:path*"
+    }
   ]
 }

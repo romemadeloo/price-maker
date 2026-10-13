@@ -4,8 +4,14 @@ A local, spreadsheet-style web app that turns an **expected price table** into
 **price-per-mm² values**, proves those values can reproduce the expected prices
 to the exact won, and exports them as CSV.
 
-Everything runs in the browser. No backend, no network calls — your pricing data
-never leaves the machine.
+Each musticker.com product keeps its own drafted price table, and every draft
+can be compared price-by-price against what the live site charges today.
+Drafts and comparisons are **shared**: anyone who opens the deployed app sees
+the same workspace, from any PC.
+
+All calculation runs in the browser. The server side is one small function
+that stores the shared drafts (see *Shared drafts* below), plus a proxy for the
+production quotation requests.
 
 ```bash
 npm install
@@ -137,7 +143,18 @@ src/
     roundTrip.ts            ★ Final validation against the serialized CSV
     engine.ts               Pipeline orchestration, integrity checks, summary
     calculator.ts           In-between size/quantity pricing off the rate grid
+    products.ts             The musticker.com product catalog
+    production.ts           Quotation API client and draft-vs-production comparison
+    sync.ts                 Client for the shared-workspace API
+  hooks/
+    useCloudSync.ts         Pull / push / conflict handling for shared drafts
   state/
+    workspace.ts            Per-product drafts + snapshots, local cache, merge rules
+api/
+  workspace.ts              Vercel function: the shared workspace
+  _lib/store.ts             Upstash Redis (REST) + in-memory/file stores
+  _lib/handler.ts           Request handling, validation, version checks
+  _lib/devServer.ts         Serves the same API from vite dev/preview
     sheetReducer.ts         Grid state: edits, paste, rows, columns
     sampleData.ts           Demo table
   components/
@@ -148,6 +165,10 @@ src/
     CsvPreview.tsx          Preview, copy, validate, download
     Calculator.tsx          In-between calculator with its working shown
     ImportDialog.tsx        Bulk paste target
+    Sidebar.tsx             Product navigation, search, precision settings
+    Overview.tsx            Every product's draft vs production at a glance
+    ProductWorkspace.tsx    One product's header, tabs and grid
+    ProductionCompare.tsx   Draft vs live production prices, spot check
   __tests__/                Engine, precision, parsing, calculator, parity tests
 ```
 
@@ -159,6 +180,21 @@ lives in a React component.
 
 ## Using it
 
+**Sidebar**
+
+Every product on musticker.com — 12 stickers, 8 roll stickers, 6 sheet
+stickers — is listed in the sidebar, grouped by category and searchable. Each
+one has its **own draft**: pick a product and the price table, rates, CSV and
+comparison are that product's. Drafts save as you type; the badge beside a
+product shows `draft`, `=` (matches production), `Δ n` (n prices differ) or an
+amber dot (edited here, not shared yet).
+
+At the bottom: **Your name** (shown to others as "saved by …"), and the sharing
+status — click it to sync immediately.
+
+**Overview** lists every product with its draft size, the production price book
+it was compared against, and the match / higher / lower mix at a glance.
+
 **Tabs**
 
 - **Price Table** — the editable spreadsheet.
@@ -166,6 +202,7 @@ lives in a React component.
 - **Calculator** — price a size/quantity that falls *between* the rows and columns.
 - **Validation** — per-cell results, data-integrity issues, round-trip failures.
 - **CSV Preview** — exactly what will be downloaded.
+- **Compare to Production** — the draft against the live site's prices.
 
 **Grid**
 
@@ -338,6 +375,113 @@ The answer is checked the same way the CSV is:
 
 ---
 
+## Compare to production
+
+For each distinct size in the draft (`100*100` → width 100, height 100) the tab
+asks the live quotation endpoint for that product:
+
+```
+api.musticker.com/index.php/sys/kr/pricing/quotation/<product>?width=W&height=H
+```
+
+and lines every drafted price up against production's price at the same
+quantity:
+
+| Shown | Meaning |
+|---|---|
+| Green ✓ | Draft equals production |
+| Amber ↑ | Draft is higher — Δ in ₩ or % |
+| Blue ↓ | Draft is lower |
+| `no prod.` | Production does not quote that quantity |
+| `refused` | Production rejected the size (its message is shown) |
+
+Above the matrix: how many prices were compared, the match / higher / lower
+split, the average Δ and the single largest gap. A **Differences** view lists
+every changed price sorted by size of gap, and any cell clicks through to that
+price in the table. **Export** downloads the comparison as CSV.
+
+**Round my prices to** — *Exact*, *₩10* or *₩100* — rounds each drafted price
+half-up before it is compared, since production quotes on a round unit (its
+`normalized_nr`, shown as a chip) while a draft derived from rates may not be.
+Rounded values are underlined with dots; hovering shows the price as drafted,
+and the export carries both. The draft itself is never changed. The choice is
+remembered per product in this browser, and the sidebar, Overview and tab
+badge count differences the same way.
+
+**Spot check** prices any size and quantity both ways — the draft through the
+staged calculator, production through the same endpoint with `&quantity=` — so
+in-between sizes can be compared too.
+
+The fetched prices are stored with the product's draft, so the comparison is
+still there after a reload; **Refresh production prices** re-quotes every size,
+and **Fetch n new sizes** only the rows added since.
+
+**Why a proxy.** The quotation API sends no CORS headers for other origins, so
+the browser cannot call it directly. The app calls `/api/musticker/*` instead,
+which Vite proxies in `npm run dev` / `npm run preview`, and `vercel.json`
+rewrites in production, both to `https://api.musticker.com/index.php/sys/kr/*`.
+Only sizes and quantities are sent — never the drafted prices.
+
+---
+
+## Shared drafts
+
+There are no accounts. The deployed app keeps one shared workspace — every
+product's draft and its last production comparison — and everyone who opens
+the URL works in it.
+
+- **Saving.** Edits go to the server about a second after you stop typing.
+  The browser also keeps a copy, so the app opens instantly and anything edited
+  offline is uploaded when the connection returns.
+- **Seeing others' changes.** The app checks every 30 seconds while its tab is
+  visible, and whenever you come back to it. Other products update quietly; the
+  product you have open shows a **Load latest** banner instead of changing
+  under your cursor.
+- **Two people, one product.** Every draft has a version. A save based on an
+  old version is refused rather than overwriting, and you choose: **Keep mine**
+  (overwrite theirs, deliberately) or **Load theirs** (discard yours). Nothing
+  is lost silently either way.
+- **Production comparisons** are shared too, so one person's fetch is everyone's
+  — the newest fetch wins.
+- Drafts made before sharing existed are uploaded automatically the first time
+  the new version opens in that browser.
+
+### Setting it up on Vercel (once)
+
+1. In the Vercel project: **Storage → Marketplace → Upstash for Redis → Create**
+   and connect it to this project. The free tier is plenty. This adds the
+   `KV_REST_API_URL` / `KV_REST_API_TOKEN` environment variables.
+2. Redeploy. The sidebar should read *Shared — everyone sees these drafts*.
+
+Until step 1 is done, the sidebar says *Shared storage not set up — this browser
+only* and the app behaves as before, saving in the browser alone.
+
+**Optional passcode.** Without one, anyone who has the URL can read and edit
+the drafts. To require a shared team passcode, add a `PRICER_PASSCODE`
+environment variable in Vercel and redeploy; the app then asks for it once per
+browser. It is a single shared secret, not a login.
+
+### Locally
+
+`npm run dev` and `npm run preview` serve the same API from the Vite server and
+store the workspace in `.data/workspace.json` (git-ignored). Set the Redis env
+vars locally to work against the real store instead.
+
+The API (`api/workspace.ts`, logic in `api/_lib/`):
+
+```
+GET  /api/workspace?summary=1             versions + snapshot stamps (the poll)
+GET  /api/workspace[?slugs=a,b]           drafts and snapshots
+PUT  /api/workspace?slug=x&kind=draft     { sheet | null, baseVersion, updatedBy }
+                                          409 + current copy if someone saved first
+PUT  /api/workspace?slug=x&kind=snapshot  { fetchedAt, savedAt, quotes }
+```
+
+The version check and the write happen in one Lua script in Redis, so two saves
+landing at the same moment cannot both win.
+
+---
+
 ## Data-integrity checks
 
 Nothing questionable is silently modified — it is reported:
@@ -365,7 +509,9 @@ decision to you.
 
 ## Deploying
 
-The app is a static build — no backend, no environment variables, no secrets.
+The app is a static build plus one Vercel function (`api/workspace.ts`) for
+the shared drafts, and a rewrite that proxies `/api/musticker/*` to the
+production quotation API. See *Shared drafts* for the one-time Redis setup.
 
 Vercel auto-detects Vite, and `vercel.json` pins the settings explicitly:
 `npm ci` -> `npm run build` -> serve `dist/`, with hashed assets under
@@ -374,8 +520,8 @@ Vercel auto-detects Vite, and `vercel.json` pins the settings explicitly:
 To deploy: **vercel.com/new** -> import `romemadeloo/price-maker` -> Deploy.
 Every push to `main` then redeploys automatically.
 
-Pricing data stays in the browser either way: nothing is uploaded, and the app
-makes no network calls after the page loads.
+Drafted prices go only to your own shared storage. The musticker API only ever
+receives sizes and quantities.
 
 ---
 
@@ -385,7 +531,7 @@ makes no network calls after the page loads.
 npm test
 ```
 
-120 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
+147 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
 decimals (225 × 30 → ₩5,800), the large precision-sensitive row (366,000 ×
 30,000 → ₩155,793,118), a ~700-combination sweep asserting every exported rate
 rebuilds its price, CSV round-trip on a 2,907-cell table, input normalization,
@@ -406,3 +552,16 @@ ladder for an interpolated size, the ₩120,900 quote at quantity 123, the
 stage-by-stage working matching the API's own debug payload, an exact size with
 an in-between quantity (₩135,800), the oversize extrapolation (₩8,586,800 at
 4,000,000 mm²), and each request production refuses.
+
+`production.test.ts` adds 8 for the production comparison, against a response
+captured from the live endpoint: reading the quantity ladder, unit and price
+book; sheet-priced products; a refused size; and a draft lined up cell by cell
+(match, higher, lower, a quantity production does not quote, a refused size, a
+row with no size) through to the exported CSV.
+
+`sharedWorkspace.test.ts` adds 14 for sharing: saving and reading back a draft,
+a stale save refused with the winning copy returned, deletions, snapshots, the
+optional passcode, missing storage; and the merge rules — newer server drafts
+applied, unshared local edits never overwritten, the open product held back,
+server-side deletions, a reset server re-seeded, the newest snapshot kept, and
+the poll downloading only what changed.
