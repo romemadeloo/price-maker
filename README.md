@@ -235,19 +235,24 @@ if production ever splits a group, it says which colors no longer match. The
 groups are defined in `src/lib/products.ts` (`variants`); the solid group keeps
 the bare `vinyl-lettering` key, the others are `vinyl-lettering~<group>`.
 
-**Overview** is a dashboard over every price list: how many are drafted and
-compared, the overall match rate and average difference, a diverging bar per
-compared list (draft lower · match · draft higher, worst first), the lists
-needing attention, a donut of all compared prices, and a card per drafted list
-with its rows, base-area and quantity ranges, editor, production price book,
-match rate and largest gap. Pills filter it by category.
+**Overview** is one chart over every price list — *Match with production*:
+a bar per list split into draft lower (blue), match (green) and draft higher
+(red), lowest match rate first, then lists drafted but not compared, then lists
+not drafted yet. Pills filter by category; hover a bar for counts, click a row
+to open that list.
+
+**Top bar** — sharing status, **Rate dp** (decimal places for the exported
+rates) and **your name** (shown to others as "saved by") sit across the top of
+every page. Clicking your avatar in the icon rail jumps to the name.
 
 **Compare to Production** keeps everything on one compact bar (source, rounding,
 colors/material check, actions), a stats strip, and a **heatmap**: one row per
 drafted size, one column per quantity, with each row's and column's match rate.
-Matches stay a quiet gray ✓; differences are blue (draft lower) or red (draft
-higher), deeper as the gap grows — a CVD-safe diverging pair, so where the draft
-and production part ways shows at a glance. Hover any cell for the numbers; click
+Matches are light green with a ✓; differences are blue (draft lower) or red
+(draft higher), deeper as the gap grows, so where the draft and production part
+ways shows at a glance. The green / blue / red set passes the color-blindness
+checks (the red is deep enough to stay apart from the green), and each state
+also has an icon — ✓ ↓ ↑. Hover any cell for the numbers; click
 it to edit that price.
 
 **Tabs**

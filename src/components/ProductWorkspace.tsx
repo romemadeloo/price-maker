@@ -192,7 +192,7 @@ export default function ProductWorkspace({
     <div className="flex h-full min-w-0 flex-col">
       {/* ------------------------------------------------ header */}
       <header>
-        <div className="flex flex-wrap items-center gap-4 px-4 pb-3 pt-6 sm:px-7">
+        <div className="flex flex-wrap items-center gap-4 px-4 pb-3 pt-2 sm:px-7">
           <button className="btn btn-default mt-1 px-2 lg:hidden" onClick={onOpenNav} aria-label="Open products">
             <MenuIcon />
           </button>
@@ -274,7 +274,7 @@ export default function ProductWorkspace({
               ) : t.id === 'compare' && changedCount != null ? (
                 <span
                   className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                    changedCount > 0 ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-700'
+                    changedCount > 0 ? 'bg-slate-800 text-white' : 'bg-green-100 text-green-700'
                   }`}
                 >
                   {changedCount > 0 ? `Δ ${changedCount.toLocaleString()}` : '✓'}

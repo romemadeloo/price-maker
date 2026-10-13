@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import NavRail, { type RailTarget } from './components/NavRail';
+import TopBar from './components/TopBar';
 import Overview from './components/Overview';
 import ProductWorkspace, { type Tab } from './components/ProductWorkspace';
 import { findPriceList, PRICE_LISTS } from './lib/products';
@@ -147,17 +148,19 @@ export default function App() {
           setView('overview');
           setNavOpen(false);
         }}
-        options={workspace.options}
-        setOptions={setOptions}
-        saved={saved}
-        sync={sync}
-        userName={workspace.userName}
-        setUserName={setUserName}
         open={navOpen}
         onClose={() => setNavOpen(false)}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar
+          sync={sync}
+          browserSaved={saved}
+          userName={workspace.userName}
+          setUserName={setUserName}
+          options={workspace.options}
+          setOptions={setOptions}
+        />
         {view === 'overview' ? (
           <Overview
             statuses={statuses}

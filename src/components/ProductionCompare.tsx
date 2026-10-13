@@ -309,7 +309,7 @@ function StatsStrip({ comparison }: { comparison: ReturnType<typeof compareDraft
           label="Match"
           value={s.same.toLocaleString()}
           sub={share(s.same)}
-          icon={<CheckIcon width={12} height={12} className="text-slate-500" />}
+          icon={<CheckIcon width={12} height={12} style={{ color: DIFF.match }} />}
         />
         <Stat
           label="Draft higher"
@@ -694,7 +694,7 @@ function heatFill(cell: CompareCell): string | undefined {
 
 /**
  * The comparison as a heatmap: one row per drafted size, one column per
- * quantity. Matches stay quiet (gray, ✓); every difference is colored by
+ * quantity. Matches are light green with a ✓; every difference is colored by
  * direction and deepens with its size, so where draft and production part
  * ways is visible at a glance. Each column and row carries its match rate.
  */
@@ -858,7 +858,7 @@ function HeatCell({ cell, measure, rowState }: { cell: CompareCell; measure: Mea
   if (cell.production == null) return <span className="text-slate-300">{MISSING_LABEL[rowState]}</span>;
   if (measure === 'draft') return <span className="text-slate-800">{groupDigits(cell.draft ?? 0)}</span>;
   if (measure === 'prod') return <span className="text-slate-800">{groupDigits(cell.production)}</span>;
-  if (cell.status === 'same') return <CheckIcon width={11} height={11} className="ml-auto text-slate-400" />;
+  if (cell.status === 'same') return <CheckIcon width={11} height={11} className="ml-auto" style={{ color: DIFF.match }} />;
   return (
     <span className="font-semibold text-slate-900">
       {measure === 'pct' ? signedPct(cell.diffPct) : signedWon(cell.diff ?? 0)}
@@ -1035,7 +1035,7 @@ function Seg<T extends string>({
   );
 }
 
-/** Lower (blue) ← match (gray, ✓) → higher (red), each arm stepped by gap size. */
+/** Lower (blue) ← match (green, ✓) → higher (red), each arm stepped by gap size. */
 function HeatLegend() {
   const ramp = (colors: readonly string[]) =>
     colors.map((c, i) => <span key={i} className="h-3 w-3" style={{ background: c }} title={HEAT_LEGEND[i]} />);
@@ -1048,7 +1048,7 @@ function HeatLegend() {
         {ramp([...HEAT.lower].reverse())}
       </span>
       <span className="flex h-3 items-center gap-0.5 px-1" style={{ background: HEAT.match }}>
-        <CheckIcon width={10} height={10} className="text-slate-500" />
+        <CheckIcon width={10} height={10} style={{ color: DIFF.match }} />
       </span>
       <span className="flex gap-px" title="< 0.5%  ·  < 2%  ·  < 5%  ·  ≥ 5%">
         {ramp(HEAT.higher)}

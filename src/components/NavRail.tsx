@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { CloudSync } from '../hooks/useCloudSync';
 import { CompareIcon, GridIcon, TableIcon } from './icons';
+import { USER_NAME_INPUT_ID } from './TopBar';
 
 export type RailTarget = 'overview' | 'table' | 'compare';
 
@@ -45,13 +46,15 @@ export default function NavRail({
         </RailButton>
       </nav>
 
-      <div
+      <button
+        onClick={() => document.getElementById(USER_NAME_INPUT_ID)?.focus()}
         className="relative mt-auto flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-orange-400 text-sm font-semibold text-white"
-        title={`${userName.trim() || 'Set your name in the sidebar'} · ${sync.status}`}
+        title={`${userName.trim() || 'Set your name (top right)'} · ${sync.status}`}
+        aria-label="Edit your name"
       >
         {initial}
         <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full ring-2 ring-white ${dot}`} />
-      </div>
+      </button>
     </div>
   );
 }

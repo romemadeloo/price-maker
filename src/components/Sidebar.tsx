@@ -1,11 +1,8 @@
-import { useMemo, useState, type FormEvent } from 'react';
-import type { CloudSync } from '../hooks/useCloudSync';
-import { timeAgo } from '../lib/format';
+import { useMemo, useState } from 'react';
 import { CATEGORIES, PRICE_LISTS, PRODUCTS, priceListsOf, type PriceList, type Product } from '../lib/products';
 import Swatches from './Swatches';
 import ProductThumb from './ProductThumb';
 import type { ProductStatus } from '../state/workspace';
-import type { EngineOptions } from '../types';
 import { ChevronIcon, CloseIcon, GridIcon, SearchIcon } from './icons';
 
 interface Props {
@@ -14,12 +11,6 @@ interface Props {
   statuses: Record<string, ProductStatus>;
   onSelectProduct: (slug: string) => void;
   onOverview: () => void;
-  options: EngineOptions;
-  setOptions: (o: EngineOptions) => void;
-  saved: boolean;
-  sync: CloudSync;
-  userName: string;
-  setUserName: (name: string) => void;
   /** Drawer state below the lg breakpoint; the sidebar is always shown above it. */
   open: boolean;
   onClose: () => void;
@@ -35,12 +26,6 @@ export default function Sidebar({
   statuses,
   onSelectProduct,
   onOverview,
-  options,
-  setOptions,
-  saved,
-  sync,
-  userName,
-  setUserName,
   open,
   onClose,
 }: Props) {
@@ -108,7 +93,7 @@ export default function Sidebar({
         </div>
 
         {/* ---------------------------------------------------- products */}
-        <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+        <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
           {CATEGORIES.map((cat) => {
             const items = filtered.filter(({ product }) => product.category === cat.id);
             if (items.length === 0) return null;
@@ -160,41 +145,6 @@ export default function Sidebar({
           {filtered.length === 0 && <div className="px-2 py-8 text-center text-xs text-slate-400">No products match.</div>}
         </nav>
 
-        {/* ---------------------------------------------------- settings */}
-        <div className="px-3 pb-4">
-          <div className="card space-y-2.5 px-4 py-3.5">
-            <label className="flex items-center gap-2 text-xs text-slate-500">
-              <span className="w-16 shrink-0">Your name</span>
-              <input
-                value={userName}
-                onChange={(e) => setUserName(e.target.value)}
-                placeholder="shown as “saved by”"
-                maxLength={60}
-                className="min-w-0 flex-1 rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-800 ring-1 ring-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-brand-300"
-              />
-            </label>
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span className="w-16 shrink-0" title="Decimal places for the exported price-per-mm² rates">Rate dp</span>
-              <DpInput
-                label="min"
-                title="Decimal places the precision search starts at"
-                value={options.minDecimalPlaces}
-                min={0}
-                max={options.maxDecimalPlaces}
-                onChange={(v) => setOptions({ ...options, minDecimalPlaces: Math.max(0, v) })}
-              />
-              <DpInput
-                label="max"
-                title="Upper bound for the precision search"
-                value={options.maxDecimalPlaces}
-                min={options.minDecimalPlaces}
-                max={30}
-                onChange={(v) => setOptions({ ...options, maxDecimalPlaces: Math.min(30, v) })}
-              />
-            </div>
-            <SyncStatusLine sync={sync} browserSaved={saved} />
-          </div>
-        </div>
       </aside>
     </>
   );
@@ -257,55 +207,6 @@ function VariantGroup({
   );
 }
 
-const SYNC_LABEL: Record<CloudSync['status'], { dot: string; text: string }> = {
-  connecting: { dot: 'bg-slate-300 animate-pulse', text: 'Connecting to shared drafts…' },
-  synced: { dot: 'bg-emerald-500', text: 'Shared — everyone sees these drafts' },
-  saving: { dot: 'bg-brand-500 animate-pulse', text: 'Saving to shared drafts…' },
-  offline: { dot: 'bg-amber-400', text: 'Offline — saved here, will share when back' },
-  'not-configured': { dot: 'bg-amber-400', text: 'Shared storage not set up — this browser only' },
-  locked: { dot: 'bg-red-500', text: 'Passcode needed for shared drafts' },
-  error: { dot: 'bg-red-500', text: 'Shared drafts unavailable — saved here' },
-};
-
-function SyncStatusLine({ sync, browserSaved }: { sync: CloudSync; browserSaved: boolean }) {
-  const [passcode, setPasscode] = useState('');
-  const label = SYNC_LABEL[sync.status];
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (passcode.trim()) sync.unlock(passcode);
-    setPasscode('');
-  };
-
-  return (
-    <div className="space-y-1.5 border-t border-slate-100 pt-2.5">
-      <button
-        onClick={sync.syncNow}
-        title={[sync.message, sync.lastSyncedAt ? `Last synced ${timeAgo(sync.lastSyncedAt)}` : null, 'Click to sync now']
-          .filter(Boolean)
-          .join('\n')}
-        className="flex w-full items-center gap-1.5 text-left text-[11px] text-slate-500 hover:text-slate-800"
-      >
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${label.dot}`} />
-        {label.text}
-      </button>
-      {sync.status === 'locked' && (
-        <form onSubmit={submit} className="flex gap-1.5">
-          <input
-            type="password"
-            value={passcode}
-            onChange={(e) => setPasscode(e.target.value)}
-            placeholder="Team passcode"
-            className="min-w-0 flex-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs ring-1 ring-slate-200 focus:outline-none focus:ring-brand-300"
-          />
-          <button className="rounded-lg bg-brand-600 px-2.5 text-xs font-medium text-white hover:bg-brand-700">Unlock</button>
-        </form>
-      )}
-      {!browserSaved && <div className="text-[11px] text-amber-600">This browser is not keeping a local copy.</div>}
-    </div>
-  );
-}
-
 /** Draft / comparison state at a glance. Differences are counted, never colored by direction here. */
 function StatusBadge({ status }: { status: ProductStatus | undefined }) {
   if (status?.unsynced) {
@@ -319,7 +220,7 @@ function StatusBadge({ status }: { status: ProductStatus | undefined }) {
   const changed = c.higher + c.lower;
   if (changed === 0) {
     return (
-      <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600" title="Matches production">
+      <span className="rounded-md bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold text-green-700" title="Matches production">
         ✓ match
       </span>
     );
@@ -331,35 +232,5 @@ function StatusBadge({ status }: { status: ProductStatus | undefined }) {
     >
       Δ {changed.toLocaleString()}
     </span>
-  );
-}
-
-function DpInput({
-  label,
-  title,
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  label: string;
-  title: string;
-  value: number;
-  min: number;
-  max: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <label className="flex flex-1 items-center gap-1 rounded-lg bg-slate-50 px-2 py-1 ring-1 ring-slate-200" title={title}>
-      <span className="text-[10px] uppercase text-slate-400">{label}</span>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value) || 0)}
-        className="no-spin w-full min-w-[1.75rem] bg-transparent text-right text-xs tabular-nums text-slate-800 focus:outline-none"
-      />
-    </label>
   );
 }
