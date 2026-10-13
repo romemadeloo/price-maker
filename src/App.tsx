@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import Overview from './components/Overview';
 import ProductWorkspace, { type Tab } from './components/ProductWorkspace';
-import { findProduct, PRODUCTS } from './lib/products';
+import { findPriceList, PRICE_LISTS } from './lib/products';
 import type { ProductionSnapshot } from './lib/production';
 import { useCloudSync } from './hooks/useCloudSync';
 import {
@@ -40,8 +40,9 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', flush);
   }, []);
 
-  const slug = workspace.activeSlug;
-  const product = findProduct(slug) ?? PRODUCTS[0];
+  // The active price list: a product, or one color group of it.
+  const list = findPriceList(workspace.activeSlug) ?? PRICE_LISTS[0];
+  const slug = list.key;
 
   /**
    * Bumped when a product's draft is replaced from the server, which remounts
@@ -57,7 +58,7 @@ export default function App() {
   }, []);
 
   const sync = useCloudSync(workspace, setWorkspace, {
-    holdSlug: view === 'product' ? product.slug : null,
+    holdSlug: view === 'product' ? slug : null,
     onReplace,
   });
 
@@ -84,7 +85,7 @@ export default function App() {
     });
   }, []);
 
-  const revision = revisions[product.slug] ?? 0;
+  const revision = revisions[slug] ?? 0;
   const onSaveDraft = useCallback(
     (sheet: SheetState) => saveDraft(slug, revision, sheet),
     [saveDraft, slug, revision],
@@ -114,19 +115,19 @@ export default function App() {
 
   const statuses = useMemo(() => {
     const out: Record<string, ProductStatus> = {};
-    for (const p of PRODUCTS) out[p.slug] = productStatus(workspace, p.slug);
+    for (const l of PRICE_LISTS) out[l.key] = productStatus(workspace, l.key);
     return out;
     // Options, names and the active slug do not affect statuses; skip recomputing on them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.drafts, workspace.snapshots, workspace.dirty, workspace.compareRounding]);
 
-  const draft = workspace.drafts[product.slug];
+  const draft = workspace.drafts[slug];
 
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
         view={view}
-        activeSlug={product.slug}
+        activeSlug={slug}
         statuses={statuses}
         onSelectProduct={selectProduct}
         onOverview={() => {
@@ -148,21 +149,21 @@ export default function App() {
           <Overview statuses={statuses} onSelectProduct={selectProduct} onOpenNav={() => setNavOpen(true)} />
         ) : (
           <ProductWorkspace
-            key={`${product.slug}:${revision}`}
-            product={product}
+            key={`${slug}:${revision}`}
+            priceList={list}
             initialSheet={draft?.sheet ?? null}
             updatedAt={draft?.updatedAt ?? null}
             updatedBy={draft?.updatedBy ?? null}
-            unsynced={!!workspace.dirty[product.slug]}
-            conflict={sync.conflicts[product.slug] ?? null}
-            incoming={sync.incoming[product.slug] ?? null}
-            onKeepMine={() => sync.keepMine(product.slug)}
-            onTakeTheirs={() => sync.takeTheirs(product.slug)}
-            onDismissIncoming={() => sync.dismissIncoming(product.slug)}
+            unsynced={!!workspace.dirty[slug]}
+            conflict={sync.conflicts[slug] ?? null}
+            incoming={sync.incoming[slug] ?? null}
+            onKeepMine={() => sync.keepMine(slug)}
+            onTakeTheirs={() => sync.takeTheirs(slug)}
+            onDismissIncoming={() => sync.dismissIncoming(slug)}
             onSaveDraft={onSaveDraft}
-            snapshot={workspace.snapshots[product.slug] ?? null}
+            snapshot={workspace.snapshots[slug] ?? null}
             onSnapshot={onSnapshot}
-            compareRounding={workspace.compareRounding[product.slug] ?? 1}
+            compareRounding={workspace.compareRounding[slug] ?? 1}
             onCompareRounding={setCompareRounding}
             options={workspace.options}
             tab={tab}

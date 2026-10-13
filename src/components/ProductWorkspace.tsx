@@ -23,7 +23,8 @@ import {
 } from './icons';
 import { runEngine } from '../lib/engine';
 import { parseDelimited } from '../lib/parse';
-import { CATEGORIES, productUrl, type Product } from '../lib/products';
+import { CATEGORIES, priceListName, productUrl, type PriceList } from '../lib/products';
+import Swatches from './Swatches';
 import { compareDraft, type ProductionSnapshot } from '../lib/production';
 import { timeAgo } from '../lib/format';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -48,7 +49,8 @@ const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
 const RECALC_DEBOUNCE_MS = 250;
 
 interface Props {
-  product: Product;
+  /** The product, or one color group of it, being drafted. */
+  priceList: PriceList;
   /** The stored draft, or null for a product nobody has drafted yet. Read once, on mount. */
   initialSheet: SheetState | null;
   updatedAt: string | null;
@@ -75,11 +77,11 @@ interface Props {
 }
 
 /**
- * One product's drafting workspace. Mounted with `key={slug}`, so switching
- * products starts from that product's stored draft with clean grid state.
+ * One price list's drafting workspace. Mounted with `key={key}`, so switching
+ * lists starts from that list's stored draft with clean grid state.
  */
 export default function ProductWorkspace({
-  product,
+  priceList,
   initialSheet,
   updatedAt,
   updatedBy,
@@ -99,6 +101,7 @@ export default function ProductWorkspace({
   onTabChange,
   onOpenNav,
 }: Props) {
+  const { product, variant } = priceList;
   const [sheet, dispatch] = useReducer(sheetReducer, initialSheet, (s) => s ?? emptySheet(DEFAULT_QUANTITIES, 15));
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const [selectedRows, setSelectedRows] = useState<number[]>([]);
@@ -177,7 +180,7 @@ export default function ProductWorkspace({
   };
 
   const clearTable = () => {
-    if (window.confirm(`Clear the drafted price table for ${product.name}?`)) dispatch({ type: 'clearAll' });
+    if (window.confirm(`Clear the drafted price table for ${priceListName(priceList)}?`)) dispatch({ type: 'clearAll' });
   };
 
   const category = CATEGORIES.find((c) => c.id === product.category);
@@ -195,11 +198,18 @@ export default function ProductWorkspace({
             <div className="flex items-center gap-1.5 text-xs text-slate-500">
               <span>{category?.english}</span>
               <span className="text-slate-300">/</span>
-              <span className="font-mono text-[11px]">{product.slug}</span>
+              <span className="font-mono text-[11px]">{priceList.key}</span>
             </div>
             <h1 className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold tracking-tight text-slate-900">
               {product.name}
               <span className="text-sm font-normal text-slate-400">{product.english}</span>
+              {variant && (
+                <span className="inline-flex items-center gap-1.5 self-center rounded-lg bg-brand-50 px-2 py-0.5 text-sm font-medium text-brand-800 ring-1 ring-inset ring-brand-100">
+                  <Swatches colors={variant.colors} />
+                  {variant.name}
+                  <span className="font-normal text-brand-600">{variant.english}</span>
+                </span>
+              )}
             </h1>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
               <span>
@@ -386,7 +396,7 @@ export default function ProductWorkspace({
 
         {tab === 'compare' && (
           <ProductionCompare
-            product={product}
+            priceList={priceList}
             result={result}
             options={options}
             snapshot={snapshot}

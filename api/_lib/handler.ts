@@ -32,8 +32,11 @@ export interface HandlerOptions {
   now?: () => Date;
 }
 
-/** Product slugs as the site uses them. The client checks them against the catalog. */
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/**
+ * Price-list keys: a product slug as the site uses it, optionally with a
+ * variant (`vinyl-lettering~metallic`). The client checks them against the catalog.
+ */
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:~[a-z0-9]+(?:-[a-z0-9]+)*)?$/;
 const isSlug = (value: string) => value.length <= 64 && SLUG.test(value);
 
 const MAX_ROWS = 20_000;

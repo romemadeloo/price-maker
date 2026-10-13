@@ -1,7 +1,8 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import type { CloudSync } from '../hooks/useCloudSync';
 import { timeAgo } from '../lib/format';
-import { CATEGORIES, PRODUCTS, type Product } from '../lib/products';
+import { CATEGORIES, PRICE_LISTS, PRODUCTS, priceListsOf, type PriceList, type Product } from '../lib/products';
+import Swatches from './Swatches';
 import type { ProductStatus } from '../state/workspace';
 import type { EngineOptions } from '../types';
 import { ChevronIcon, CloseIcon, GridIcon, SearchIcon } from './icons';
@@ -41,15 +42,22 @@ export default function Sidebar({
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
+  /** Matching products, each with the price lists to show under it. */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return PRODUCTS;
-    return PRODUCTS.filter(
-      (p) => p.name.toLowerCase().includes(q) || p.english.toLowerCase().includes(q) || p.slug.includes(q),
-    );
+    const matches = (...texts: string[]) => !q || texts.some((t) => t.toLowerCase().includes(q));
+    return PRODUCTS.flatMap((product) => {
+      const lists = priceListsOf(product);
+      if (matches(product.name, product.english, product.slug)) return [{ product, lists }];
+      // Searching a color ("gold", "홀로그램") finds the color group it belongs to.
+      const hits = lists.filter(
+        (l) => l.variant && matches(l.variant.name, l.variant.english, ...l.variant.colors.map((c) => c.name)),
+      );
+      return hits.length > 0 ? [{ product, lists: hits }] : [];
+    });
   }, [query]);
 
-  const draftedCount = PRODUCTS.filter((p) => statuses[p.slug]?.hasDraft).length;
+  const draftedCount = PRICE_LISTS.filter((l) => statuses[l.key]?.hasDraft).length;
 
   return (
     <>
@@ -84,7 +92,7 @@ export default function Sidebar({
             <GridIcon />
             Overview
             <span className="ml-auto rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-400">
-              {draftedCount}/{PRODUCTS.length}
+              {draftedCount}/{PRICE_LISTS.length}
             </span>
           </button>
         </div>
@@ -105,7 +113,7 @@ export default function Sidebar({
         {/* ---------------------------------------------------- products */}
         <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
           {CATEGORIES.map((cat) => {
-            const items = filtered.filter((p) => p.category === cat.id);
+            const items = filtered.filter(({ product }) => product.category === cat.id);
             if (items.length === 0) return null;
             const isCollapsed = collapsed[cat.id] && !query;
             return (
@@ -124,15 +132,26 @@ export default function Sidebar({
                 </button>
                 {!isCollapsed && (
                   <ul className="mt-0.5 space-y-0.5">
-                    {items.map((p) => (
-                      <ProductItem
-                        key={p.slug}
-                        product={p}
-                        status={statuses[p.slug]}
-                        active={view === 'product' && p.slug === activeSlug}
-                        onClick={() => onSelectProduct(p.slug)}
-                      />
-                    ))}
+                    {items.map(({ product, lists }) =>
+                      product.variants ? (
+                        <VariantGroup
+                          key={product.slug}
+                          product={product}
+                          lists={lists}
+                          statuses={statuses}
+                          activeKey={view === 'product' ? activeSlug : null}
+                          onSelect={onSelectProduct}
+                        />
+                      ) : (
+                        <ProductItem
+                          key={product.slug}
+                          product={product}
+                          status={statuses[product.slug]}
+                          active={view === 'product' && product.slug === activeSlug}
+                          onClick={() => onSelectProduct(product.slug)}
+                        />
+                      ),
+                    )}
                   </ul>
                 )}
               </div>
@@ -225,6 +244,56 @@ function SyncStatusLine({ sync, browserSaved }: { sync: CloudSync; browserSaved:
       )}
       {!browserSaved && <div className="text-[11px] text-amber-400">This browser is not keeping a local copy.</div>}
     </div>
+  );
+}
+
+/** A product priced per option: its name, then one entry per price list. */
+function VariantGroup({
+  product,
+  lists,
+  statuses,
+  activeKey,
+  onSelect,
+}: {
+  product: Product;
+  lists: PriceList[];
+  statuses: Record<string, ProductStatus>;
+  activeKey: string | null;
+  onSelect: (key: string) => void;
+}) {
+  return (
+    <li>
+      <div className="px-2.5 pb-0.5 pt-1.5">
+        <div className="truncate text-[13px] text-slate-300">{product.name}</div>
+        <div className="truncate text-[11px] text-slate-500">{product.english} · priced by color</div>
+      </div>
+      <ul className="ml-3 space-y-0.5 border-l border-slate-800 pl-2">
+        {lists.map((list) => {
+          const active = list.key === activeKey;
+          return (
+            <li key={list.key}>
+              <button
+                onClick={() => onSelect(list.key)}
+                className={`group flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors ${
+                  active ? 'bg-brand-600/15 text-white ring-1 ring-inset ring-brand-500/40' : 'hover:bg-slate-900'
+                }`}
+              >
+                {list.variant && <Swatches colors={list.variant.colors} size={10} max={4} />}
+                <div className="min-w-0 flex-1">
+                  <div
+                    className={`truncate text-[12px] ${active ? 'font-medium text-white' : 'text-slate-300 group-hover:text-white'}`}
+                  >
+                    {list.variant?.name}
+                  </div>
+                  <div className="truncate text-[10px] text-slate-500">{list.variant?.english}</div>
+                </div>
+                <StatusBadge status={statuses[list.key]} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </li>
   );
 }
 

@@ -198,6 +198,25 @@ amber dot (edited here, not shared yet).
 At the bottom: **Your name** (shown to others as "saved by …"), and the sharing
 status — click it to sync immediately.
 
+**Priced by color.** Production prices **vinyl lettering (글자 커팅 스티커)** from a
+different price book per color group, so it has one price list — its own
+draft and comparison — per group:
+
+| Price list | Colors | Production price book |
+|---|---|---|
+| 단색 Solid colors | Black, White, Red, Orange, Yellow, Green, Blue, Purple, Pink, Yellow Orange | #69 |
+| 금·은·동 Gold · Silver · Bronze | Gold, Silver, Bronze | #70 (+15% to 10 pcs, +10% from 50) |
+| 홀로그램 Hologram | Hologram | #71 (+20% to 10 pcs, +15% from 50) |
+| 풀 컬러 Full color | Full Color | #8 (legacy; stops at 300 pcs) |
+
+The sidebar shows them under the product with color swatches; searching a
+color ("gold", "홀로그램") finds its group. Compare to Production quotes each
+list with its group's color, and its **Colors in this price list** panel
+quotes every color in the group and confirms they still share one price book —
+if production ever splits a group, it says which colors no longer match. The
+groups are defined in `src/lib/products.ts` (`variants`); the solid group keeps
+the bare `vinyl-lettering` key, the others are `vinyl-lettering~<group>`.
+
 **Overview** lists every product with its draft size, the production price book
 it was compared against, and the match / higher / lower mix at a glance.
 
@@ -565,7 +584,7 @@ receives sizes and quantities.
 npm test
 ```
 
-147 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
+153 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
 decimals (225 × 30 → ₩5,800), the large precision-sensitive row (366,000 ×
 30,000 → ₩155,793,118), a ~700-combination sweep asserting every exported rate
 rebuilds its price, CSV round-trip on a 2,907-cell table, input normalization,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { EngineOptions, EngineResult } from '../types';
-import { productUrl, type Product } from '../lib/products';
+import { productUrl, type PriceList, type ProductColor, type Variant } from '../lib/products';
+import Swatches from './Swatches';
 import {
   compareDraft,
   comparisonToCsv,
@@ -8,6 +9,7 @@ import {
   fetchProductionQuote,
   type CompareCell,
   type CompareRow,
+  type ProductionQuote,
   type ProductionSnapshot,
   type QuoteEntry,
 } from '../lib/production';
@@ -20,7 +22,8 @@ import { FIRST_PRICE_COL } from '../state/sheetReducer';
 import { ArrowDownIcon, ArrowUpIcon, CheckIcon, DownloadIcon, ExternalIcon, RefreshIcon } from './icons';
 
 interface Props {
-  product: Product;
+  /** The product, or one color group of it. */
+  priceList: PriceList;
   result: EngineResult;
   options: EngineOptions;
   snapshot: ProductionSnapshot | null;
@@ -41,7 +44,7 @@ const MAX_MATRIX_ROWS = 300;
 const MAX_LIST_ROWS = 500;
 
 export default function ProductionCompare({
-  product,
+  priceList,
   result,
   options,
   snapshot,
@@ -50,6 +53,7 @@ export default function ProductionCompare({
   onRounding,
   onGoToCell,
 }: Props) {
+  const { product, variant } = priceList;
   const [view, setView] = useState<View>('matrix');
   const [filter, setFilter] = useState<Filter>('all');
   const [measure, setMeasure] = useState<Measure>('pct');
@@ -60,14 +64,14 @@ export default function ProductionCompare({
     [result.parsed, snapshot, rounding],
   );
   const missing = useMemo(() => sizes.filter((s) => !snapshot?.quotes[s.key]), [sizes, snapshot]);
-  const { fetchSizes, progress, cancel } = useProductionFetch(product.slug, snapshot, onSnapshot);
+  const { fetchSizes, progress, cancel } = useProductionFetch(product.slug, variant?.params, snapshot, onSnapshot);
 
   const s = comparison.summary;
   const busy = progress != null;
 
   const exportCsv = () => {
     const stamp = new Date().toISOString().slice(0, 10);
-    downloadCsv(comparisonToCsv(comparison), `${product.slug}-vs-production-${stamp}.csv`);
+    downloadCsv(comparisonToCsv(comparison), `${priceList.key.replace('~', '-')}-vs-production-${stamp}.csv`);
   };
 
   return (
@@ -145,15 +149,17 @@ export default function ProductionCompare({
         )}
       </section>
 
+      {variant && <ColorCheck slug={product.slug} variant={variant} size={sizes[0] ?? DEFAULT_CHECK_SIZE} />}
+
       {s.rows === 0 ? (
         <EmptyState
           title="Nothing drafted yet"
-          body="Enter or paste this product's prices in the Price Table tab. Each row's size (e.g. 100*100) is what gets quoted against production."
+          body="Enter or paste this price list's prices in the Price Table tab. Each row's size (e.g. 100*100) is what gets quoted against production."
         />
       ) : !snapshot ? (
         <EmptyState
           title={`Compare ${sizes.length.toLocaleString()} size${sizes.length === 1 ? '' : 's'} against production`}
-          body="Each drafted size is quoted live from musticker.com and lined up against your draft, price by price. Results are stored with this product's draft."
+          body="Each drafted size is quoted live from musticker.com and lined up against your draft, price by price. Results are stored with this price list's draft."
           action={
             sizes.length > 0 && !busy ? (
               <button className="btn btn-primary" onClick={() => fetchSizes(sizes, 'replace')}>
@@ -167,7 +173,7 @@ export default function ProductionCompare({
         <>
           <Kpis comparison={comparison} />
           <Notices comparison={comparison} />
-          <SpotCheck product={product} result={result} options={options} rounding={rounding} />
+          <SpotCheck priceList={priceList} result={result} options={options} rounding={rounding} />
 
           <section className="card flex min-h-[420px] flex-1 flex-col overflow-hidden">
             <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
@@ -200,6 +206,7 @@ export default function ProductionCompare({
 
 function useProductionFetch(
   slug: string,
+  params: Record<string, string> | undefined,
   snapshot: ProductionSnapshot | null,
   onSnapshot: (s: ProductionSnapshot) => void,
 ) {
@@ -223,7 +230,7 @@ function useProductionFetch(
         while (next < sizes.length && !ctrl.signal.aborted) {
           const size = sizes[next++];
           try {
-            const quote = await fetchProductionQuote(slug, size.width, size.height, { signal: ctrl.signal });
+            const quote = await fetchProductionQuote(slug, size.width, size.height, { signal: ctrl.signal, params });
             quotes[size.key] = { ok: true, quote };
           } catch (err) {
             if (ctrl.signal.aborted) return;
@@ -244,7 +251,7 @@ function useProductionFetch(
       );
       setProgress(null);
     },
-    [slug, snapshot, onSnapshot],
+    [slug, params, snapshot, onSnapshot],
   );
 
   const cancel = useCallback(() => {
@@ -408,20 +415,142 @@ function Notices({ comparison }: { comparison: ReturnType<typeof compareDraft> }
 }
 
 /* ------------------------------------------------------------------ */
+/* Colors in a variant's price list                                    */
+/* ------------------------------------------------------------------ */
+
+const DEFAULT_CHECK_SIZE = { width: 100, height: 100 };
+
+type ColorQuote = { color: ProductColor; quote: ProductionQuote | null; error: string | null };
+
+/** Same price book and the same prices at every quantity. */
+function samePricing(a: ProductionQuote, b: ProductionQuote): boolean {
+  if (a.pricingId !== b.pricingId || a.prices.length !== b.prices.length) return false;
+  return a.prices.every((p, i) => p.quantity === b.prices[i].quantity && p.price === b.prices[i].price);
+}
+
+/**
+ * A variant's price list stands for several production colors. Quote each of
+ * them at one size and confirm they really share a price book — if production
+ * ever splits a group, this says so instead of the comparison quietly covering
+ * only the first color.
+ */
+function ColorCheck({ slug, variant, size }: { slug: string; variant: Variant; size: { width: number; height: number } }) {
+  const [rows, setRows] = useState<ColorQuote[] | null>(null);
+  const [nonce, setNonce] = useState(0);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setRows(null);
+    void Promise.all(
+      variant.colors.map(async (color): Promise<ColorQuote> => {
+        try {
+          const quote = await fetchProductionQuote(slug, size.width, size.height, {
+            signal: ctrl.signal,
+            params: { ...variant.params, color_id: String(color.id) },
+          });
+          return { color, quote, error: null };
+        } catch (err) {
+          return { color, quote: null, error: (err as Error).message };
+        }
+      }),
+    ).then((result) => {
+      if (!ctrl.signal.aborted) setRows(result);
+    });
+    return () => ctrl.abort();
+  }, [slug, variant, size.width, size.height, nonce]);
+
+  const reference = rows?.find((r) => r.quote)?.quote ?? null;
+  const referenceColor = rows?.find((r) => r.quote === reference)?.color.name;
+  const odd = rows?.filter((r) => !r.quote || (reference && !samePricing(r.quote, reference))) ?? [];
+  const quantities = reference?.prices.map((p) => p.quantity) ?? [];
+
+  return (
+    <section className="card px-5 py-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="text-sm font-semibold text-slate-900">
+          Colors in this price list
+          <span className="ml-2 font-normal text-slate-500">
+            {variant.name} · {variant.english}
+          </span>
+        </div>
+        <button className="btn btn-ghost ml-auto" onClick={() => setNonce((n) => n + 1)} disabled={!rows}>
+          <RefreshIcon width={14} height={14} />
+          Recheck
+        </button>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {variant.colors.map((color) => {
+          const row = rows?.find((r) => r.color.id === color.id);
+          const bad = row != null && odd.includes(row);
+          return (
+            <span
+              key={color.id}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs ring-1 ring-inset ${
+                bad ? 'bg-amber-50 text-amber-900 ring-amber-200' : 'bg-slate-50 text-slate-700 ring-slate-200'
+              }`}
+              title={
+                row?.quote
+                  ? `${row.quote.pricingName ?? 'Unknown price book'} (#${row.quote.pricingId})`
+                  : (row?.error ?? 'Checking…')
+              }
+            >
+              <Swatches colors={[color]} size={12} />
+              {color.name}
+              {row?.quote && <span className="text-[10px] text-slate-400">#{row.quote.pricingId}</span>}
+              {!row && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-300" />}
+            </span>
+          );
+        })}
+      </div>
+
+      <div className="mt-2 text-xs">
+        {!rows ? (
+          <span className="text-slate-500">
+            Quoting each color at {size.width}×{size.height}…
+          </span>
+        ) : !reference ? (
+          <span className="text-red-700">Production quoted none of these colors: {rows[0]?.error}</span>
+        ) : odd.length === 0 ? (
+          <span className="text-emerald-700">
+            ✓ {variant.colors.length === 1 ? 'Priced' : `All ${variant.colors.length} colors are priced`} from{' '}
+            <span className="font-medium">{reference.pricingName}</span> (#{reference.pricingId}), identical at{' '}
+            {size.width}×{size.height}
+            {quantities.length > 0 && (
+              <span className="text-slate-500">
+                {' '}
+                · quantities {groupDigits(quantities[0])}–{groupDigits(quantities[quantities.length - 1])}
+              </span>
+            )}
+            .
+          </span>
+        ) : (
+          <span className="text-amber-800">
+            ⚠ {odd.map((r) => r.color.name).join(', ')} {odd.length === 1 ? 'is' : 'are'} not priced like{' '}
+            {referenceColor} ({reference.pricingName}). This price list is compared using {referenceColor}'s prices.
+          </span>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Spot check: any size and quantity, draft vs production              */
 /* ------------------------------------------------------------------ */
 
 function SpotCheck({
-  product,
+  priceList,
   result,
   options,
   rounding,
 }: {
-  product: Product;
+  priceList: PriceList;
   result: EngineResult;
   options: EngineOptions;
   rounding: PriceUnit;
 }) {
+  const { product, variant } = priceList;
   const [width, setWidth] = useState('');
   const [height, setHeight] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -464,7 +593,7 @@ function SpotCheck({
     let production: number | null = null;
     let error: string | null = null;
     try {
-      const quote = await fetchProductionQuote(product.slug, w, h, { quantity: q });
+      const quote = await fetchProductionQuote(product.slug, w, h, { quantity: q, params: variant?.params });
       production = quote.prices.find((p) => p.quantity === q)?.price ?? null;
       if (production == null) error = 'Production returned no price for this quantity.';
     } catch (err) {

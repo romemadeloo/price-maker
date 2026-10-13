@@ -54,8 +54,14 @@ export function sizeKey(width: number, height: number): string {
   return `${width}x${height}`;
 }
 
-export function quotationUrl(slug: string, width: number, height: number, quantity?: number): string {
-  const params = new URLSearchParams({ width: String(width), height: String(height) });
+export function quotationUrl(
+  slug: string,
+  width: number,
+  height: number,
+  quantity?: number,
+  extra: Record<string, string> = {},
+): string {
+  const params = new URLSearchParams({ width: String(width), height: String(height), ...extra });
   if (quantity != null) params.set('quantity', String(quantity));
   return `${PRODUCTION_API_BASE}/pricing/quotation/${encodeURIComponent(slug)}?${params}`;
 }
@@ -112,11 +118,14 @@ export async function fetchProductionQuote(
   slug: string,
   width: number,
   height: number,
-  options: { quantity?: number; signal?: AbortSignal } = {},
+  /** `params`: a variant's extra options, e.g. { color_id: '11' }. */
+  options: { quantity?: number; signal?: AbortSignal; params?: Record<string, string> } = {},
 ): Promise<ProductionQuote> {
   let response: Response;
   try {
-    response = await fetch(quotationUrl(slug, width, height, options.quantity), { signal: options.signal });
+    response = await fetch(quotationUrl(slug, width, height, options.quantity, options.params), {
+      signal: options.signal,
+    });
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw err;
     throw new Error('Could not reach the production API.');

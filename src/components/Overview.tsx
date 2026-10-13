@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { CATEGORIES, PRODUCTS } from '../lib/products';
+import { CATEGORIES, PRICE_LISTS, PRODUCTS } from '../lib/products';
+import Swatches from './Swatches';
 import { signedPct, timeAgo } from '../lib/format';
 import type { ProductStatus } from '../state/workspace';
 import { ChevronIcon, MenuIcon } from './icons';
@@ -10,9 +11,9 @@ interface Props {
   onOpenNav: () => void;
 }
 
-/** Every product's draft and how it stands against production, on one page. */
+/** Every price list's draft and how it stands against production, on one page. */
 export default function Overview({ statuses, onSelectProduct, onOpenNav }: Props) {
-  const all = PRODUCTS.map((p) => statuses[p.slug]);
+  const all = PRICE_LISTS.map((l) => statuses[l.key]);
   const drafted = all.filter((s) => s?.hasDraft).length;
   const compared = all.filter((s) => s?.compare).length;
   const differing = all.filter((s) => s?.compare && s.compare.higher + s.compare.lower > 0).length;
@@ -36,7 +37,11 @@ export default function Overview({ statuses, onSelectProduct, onOpenNav }: Props
 
       <div className="space-y-5 px-4 py-5 sm:px-6">
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Stat label="Products drafted" value={`${drafted}`} sub={`of ${PRODUCTS.length} in the catalog`} />
+          <Stat
+            label="Price lists drafted"
+            value={`${drafted}`}
+            sub={`of ${PRICE_LISTS.length} — ${PRODUCTS.length} products, some priced by color`}
+          />
           <Stat label="Compared with production" value={`${compared}`} sub={`${drafted - compared} draft(s) not compared yet`} />
           <Stat label="Differ from production" value={`${differing}`} sub="at least one price changed" tone="amber" />
           <Stat label="Match production" value={`${matching}`} sub="every compared price identical" tone="emerald" />
@@ -62,17 +67,25 @@ export default function Overview({ statuses, onSelectProduct, onOpenNav }: Props
                   </tr>
                 </thead>
                 <tbody>
-                  {PRODUCTS.filter((p) => p.category === cat.id).map((p) => {
-                    const s = statuses[p.slug];
+                  {PRICE_LISTS.filter((l) => l.product.category === cat.id).map((l) => {
+                    const p = l.product;
+                    const s = statuses[l.key];
                     return (
                       <tr
-                        key={p.slug}
-                        onClick={() => onSelectProduct(p.slug)}
+                        key={l.key}
+                        onClick={() => onSelectProduct(l.key)}
                         className="group cursor-pointer border-t border-slate-100 hover:bg-slate-50"
                       >
                         <td className="px-5 py-2.5">
                           <div className="whitespace-nowrap font-medium text-slate-900">{p.name}</div>
                           <div className="whitespace-nowrap text-xs text-slate-500">{p.english}</div>
+                          {l.variant && (
+                            <div className="mt-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-brand-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-800">
+                              <Swatches colors={l.variant.colors} size={10} />
+                              {l.variant.name}
+                              <span className="font-normal text-brand-600">{l.variant.english}</span>
+                            </div>
+                          )}
                         </td>
                         <td className="px-3 py-2.5 text-xs text-slate-600">
                           {s?.hasDraft ? (
