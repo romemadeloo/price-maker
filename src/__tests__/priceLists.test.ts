@@ -6,15 +6,42 @@ import { memoryStore } from '../../api/_lib/store';
 import { emptyWorkspace, mergeRemote } from '../state/workspace';
 
 describe('price lists', () => {
-  it('gives every product one list, and vinyl lettering one per color group', () => {
-    const lettering = PRICE_LISTS.filter((l) => l.product.slug === 'vinyl-lettering');
-    expect(lettering.map((l) => l.key)).toEqual([
+  const keysOf = (slug: string) => PRICE_LISTS.filter((l) => l.product.slug === slug).map((l) => l.key);
+
+  it('gives transfer stickers one price list per color group, full color included', () => {
+    expect(keysOf('transfer-sticker')).toEqual([
+      'transfer-sticker',
+      'transfer-sticker~metallic',
+      'transfer-sticker~hologram',
+      'transfer-sticker~full-color',
+    ]);
+  });
+
+  it('gives vinyl lettering no full-color list — it does not sell full color', () => {
+    expect(keysOf('vinyl-lettering')).toEqual([
       'vinyl-lettering',
       'vinyl-lettering~metallic',
       'vinyl-lettering~hologram',
-      'vinyl-lettering~full-color',
     ]);
-    expect(PRICE_LISTS).toHaveLength(PRODUCTS.length - 1 + 4);
+    expect(findPriceList('vinyl-lettering~full-color')).toBeUndefined();
+  });
+
+  const SHEETS = ['sticker-sheet', 'die-cut-sheet', 'circle-sheet', 'oval-sheet', 'square-sheet', 'rectangle-sheet', 'rounded-sheet'];
+
+  it.each(SHEETS)('gives %s one price list per material', (slug) => {
+    const lists = PRICE_LISTS.filter((l) => l.product.slug === slug);
+    expect(lists.map((l) => l.key)).toEqual([slug, `${slug}~clear`, `${slug}~hologram`]);
+    // Matte is sent explicitly: without it production falls back to an older book.
+    expect(lists.map((l) => l.variant?.params)).toEqual([
+      { material_id: '1' },
+      { material_id: '2' },
+      { material_id: '3' },
+    ]);
+    expect(lists.every((l) => l.variant?.kind === 'material')).toBe(true);
+  });
+
+  it('gives every other product exactly one list', () => {
+    expect(PRICE_LISTS).toHaveLength(PRODUCTS.length - 2 - SHEETS.length + 4 + 3 + SHEETS.length * 3);
     expect(new Set(PRICE_LISTS.map((l) => l.key)).size).toBe(PRICE_LISTS.length);
   });
 
@@ -24,9 +51,12 @@ describe('price lists', () => {
     expect(findPriceList('die-cut-sticker')?.variant).toBeNull();
   });
 
-  it('covers all 15 production colors, each in exactly one group', () => {
-    const ids = PRICE_LISTS.flatMap((l) => l.variant?.colors.map((c) => c.id) ?? []);
-    expect(ids.sort((a, b) => a - b)).toEqual(Array.from({ length: 15 }, (_, i) => i + 1));
+  it.each([
+    ['transfer-sticker', 15],
+    ['vinyl-lettering', 14],
+  ] as const)('covers %s colors 1–%i, each in exactly one group', (slug, last) => {
+    const ids = PRICE_LISTS.filter((l) => l.product.slug === slug).flatMap((l) => l.variant?.options.map((c) => c.id) ?? []);
+    expect(ids.sort((a, b) => a - b)).toEqual(Array.from({ length: last }, (_, i) => i + 1));
   });
 
   it('quotes each group with its first color', () => {

@@ -198,16 +198,34 @@ amber dot (edited here, not shared yet).
 At the bottom: **Your name** (shown to others as "saved by …"), and the sharing
 status — click it to sync immediately.
 
-**Priced by color.** Production prices **vinyl lettering (글자 커팅 스티커)** from a
-different price book per color group, so it has one price list — its own
-draft and comparison — per group:
+**Priced by color.** Production prices **vinyl lettering (글자 커팅 스티커)** and
+**transfer stickers (풀 컬러 레터링 스티커)** from a different price book per color
+group, so each has one price list — its own draft and comparison — per group:
 
-| Price list | Colors | Production price book |
-|---|---|---|
-| 단색 Solid colors | Black, White, Red, Orange, Yellow, Green, Blue, Purple, Pink, Yellow Orange | #69 |
-| 금·은·동 Gold · Silver · Bronze | Gold, Silver, Bronze | #70 (+15% to 10 pcs, +10% from 50) |
-| 홀로그램 Hologram | Hologram | #71 (+20% to 10 pcs, +15% from 50) |
-| 풀 컬러 Full color | Full Color | #8 (legacy; stops at 300 pcs) |
+| Price list | Colors | Vinyl lettering | Transfer sticker |
+|---|---|---|---|
+| 단색 Solid colors | Black, White, Red, Orange, Yellow, Green, Blue, Purple, Pink, Yellow Orange | #69 | #72 |
+| 금·은·동 Gold · Silver · Bronze | Gold, Silver, Bronze | #70 | #73 |
+| 홀로그램 Hologram | Hologram | #71 | #74 |
+| 풀 컬러 Full color | Full Color | — not sold | #75 |
+
+Against the solid price, Gold · Silver · Bronze is +15% up to 10 pcs and +10%
+from 50; Hologram +20% / +15%; Full color +30% / +25%.
+
+**Priced by material.** Every sheet product — 판스티커, 자유형 판스티커 and the five
+shaped sheets (원형, 타원형, 정사각형, 직사각형, 둥근 사각) — has one price list per
+material:
+
+| Price list | 판스티커 | 자유형 판스티커 | Shaped sheets | vs matte |
+|---|---|---|---|---|
+| 무광 화이트 Matte white | #34 | #39 | #40 | — |
+| 투명 Clear | #35 | #38 | #41 | +35% |
+| 홀로그램 Hologram | #36 | #37 | #42 | +15% |
+
+Matte keeps the product's bare key, so existing sheet drafts become the matte
+list. On the shaped sheets the quantities production offers depend on the size
+(they count stickers on an A5 sheet), so a draft's quantity columns only line up
+with production's at sizes that produce the same ladder.
 
 The sidebar shows them under the product with color swatches; searching a
 color ("gold", "홀로그램") finds its group. Compare to Production quotes each
@@ -229,19 +247,33 @@ it was compared against, and the match / higher / lower mix at a glance.
 - **CSV Preview** — exactly what will be downloaded.
 - **Compare to Production** — the draft against the live site's prices.
 
-**Grid**
+**Grid** — works like Google Sheets
+
+Column letters (A = Size, B = Base Area, C… = quantities) and row numbers sit
+around a frozen header row where each quantity is typed. Above it, a toolbar
+(undo, redo, copy sheet, insert, delete, fill, clear) and a formula bar that
+shows and edits the active cell. The status bar sums, averages and counts the
+numbers in a multi-cell selection.
 
 | Action | How |
 |---|---|
+| Undo / redo | Ctrl+Z · Ctrl+Y or Ctrl+Shift+Z — every edit, paste, insert, delete, Load sample and Clear |
+| Copy the whole sheet | **Copy sheet** — headers included; pastes into Sheets/Excel and back |
+| Insert / delete rows and columns | Right-click a cell, row number or column letter |
+| Select a range | Drag, or Shift+click / Shift+arrows |
+| Select rows / columns | Click (or drag across) row numbers / column letters · Shift+Space · Ctrl+Space |
 | Paste from Sheets/Excel | Ctrl+V (grows rows and columns as needed) |
-| Paste the quantity row | Click a quantity header, Ctrl+V — spreads across the header, adding columns; extra lines fill the prices beneath |
-| Copy a range | Ctrl+C · Cut Ctrl+X |
-| Select a range | Click-drag with Shift, or Shift+arrows |
-| Select a whole row | Click the row number |
-| Edit a cell | Double-click, Enter, F2, or just start typing |
+| Paste the quantity row | Click a quantity header, Ctrl+V — spreads across the header, adding columns |
+| Copy / cut a range | Ctrl+C · Ctrl+X |
+| Fill down / right | Ctrl+D · Ctrl+R (one row/column copies from the one above/left) |
+| Edit a cell | Double-click, Enter, F2, start typing, or type in the formula bar |
 | Clear cells | Delete / Backspace |
-| Select all | Ctrl+A |
-| Navigate | Arrows, Tab, Home/End, PageUp/PageDown |
+| Jump to an edge | Ctrl+arrows · Ctrl+Home / Ctrl+End |
+| More rows | **Add N more rows at bottom**, under the last row |
+
+Size and Base Area always stay the first two columns; at least one quantity
+column always remains. Cells with a problem carry a red corner mark — hover
+for the reason.
 
 Rows are virtualized and the header + Size/Base Area columns stay pinned, so
 thousands of rows scroll smoothly. Recalculation is debounced 250 ms and
@@ -584,7 +616,7 @@ receives sizes and quantities.
 npm test
 ```
 
-153 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
+174 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
 decimals (225 × 30 → ₩5,800), the large precision-sensitive row (366,000 ×
 30,000 → ₩155,793,118), a ~700-combination sweep asserting every exported rate
 rebuilds its price, CSV round-trip on a 2,907-cell table, input normalization,

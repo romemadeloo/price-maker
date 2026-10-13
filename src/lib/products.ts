@@ -29,35 +29,48 @@ export interface Product {
   variants?: Variant[];
 }
 
-/** A production color option (`color_id`), as the product page lists it. */
-export interface ProductColor {
+/** A production option — a color (`color_id`) or a material (`material_id`). */
+export interface ProductOption {
   id: number;
   name: string;
-  /** CSS background for the swatch, from production's own style. */
+  /** CSS background for the swatch; production's own style where it has one. */
   swatch: string;
 }
+
+export type VariantKind = 'color' | 'material';
 
 /** One group of options that production quotes from the same price book. */
 export interface Variant {
   id: string;
   name: string;
   english: string;
-  colors: ProductColor[];
+  kind: VariantKind;
+  /** The quotation parameter the options are sent as. */
+  param: 'color_id' | 'material_id';
+  options: ProductOption[];
   /**
-   * Extra quotation parameters. The first color stands in for the group; the
-   * Compare tab checks that every other color is priced from the same book.
+   * Extra quotation parameters. The first option stands in for the group; the
+   * Compare tab checks that every other option is priced from the same book.
    */
   params: Record<string, string>;
 }
 
 /**
- * Vinyl lettering colors, from production's featured-data. Checked against the
- * quotation endpoint on 2026-10-13: colors 1–10 quote from price book #69,
- * 11–13 from #70 (+15% / +10% on solid), 14 from #71 (+20% / +15%), and 15
- * from #8 — a legacy book that stops at 300 pieces. The font does not change
- * the price.
+ * The lettering colors (`color_id`), from production's featured-data, grouped
+ * the way production prices them. Checked against the quotation endpoint on
+ * 2026-10-13 (surcharges are on the solid price, up to 10 pcs / from 50 pcs):
+ *
+ *   group      colors   vinyl lettering        transfer sticker
+ *   solid      1–10     #69                    #72
+ *   metallic   11–13    #70  +15% / +10%       #73  +15% / +10%
+ *   hologram   14       #71  +20% / +15%       #74  +20% / +15%
+ *   full color 15       — not sold             #75  +30% / +25%
+ *
+ * Full color is a transfer-sticker option only. (Production's API still
+ * answers vinyl lettering color 15, from a legacy book #8, but the product
+ * does not offer it.) Vinyl lettering's font does not change the price.
  */
-const LETTERING_COLORS: Record<string, ProductColor[]> = {
+const COLOR_GROUPS: Record<string, ProductOption[]> = {
   solid: [
     { id: 1, name: 'Black', swatch: '#000000' },
     { id: 2, name: 'White', swatch: '#FFFFFF' },
@@ -76,26 +89,71 @@ const LETTERING_COLORS: Record<string, ProductColor[]> = {
     { id: 13, name: 'Bronze', swatch: 'linear-gradient(135deg, #CD7F32 0%, #FFF 49.52%, #CD7F32 100%)' },
   ],
   hologram: [
-    { id: 14, name: 'Hologram', swatch: 'linear-gradient(135deg, #a5f3fc 0%, #f5d0fe 35%, #fef9c3 65%, #bfdbfe 100%)' },
+    {
+      id: 14,
+      name: 'Hologram',
+      swatch: 'linear-gradient(135deg, #B6EEE8 0%, #F5F3EA 32%, #F1B2B9 50%, #D893C1 60%, #B6EEE8 80%)',
+    },
   ],
   fullColor: [
     {
       id: 15,
       name: 'Full Color',
-      swatch: 'conic-gradient(#ef4444, #f59e0b, #eab308, #22c55e, #3b82f6, #a855f7, #ef4444)',
+      swatch:
+        'conic-gradient(from 0deg, #ff3c3c 0deg, #ff9800 60deg, #ffe600 120deg, #1abf48 180deg, #0085ff 240deg, #7f2cff 300deg, #ff3c3c 360deg)',
     },
   ],
 };
 
-function colorVariant(id: string, name: string, english: string, colors: ProductColor[]): Variant {
-  return { id, name, english, colors, params: { color_id: String(colors[0].id) } };
+function colorVariant(id: string, name: string, english: string, options: ProductOption[]): Variant {
+  return { id, name, english, kind: 'color', param: 'color_id', options, params: { color_id: String(options[0].id) } };
 }
 
-const LETTERING_VARIANTS: Variant[] = [
-  colorVariant('solid', '단색', 'Solid colors', LETTERING_COLORS.solid),
-  colorVariant('metallic', '금·은·동', 'Gold · Silver · Bronze', LETTERING_COLORS.metallic),
-  colorVariant('hologram', '홀로그램', 'Hologram', LETTERING_COLORS.hologram),
-  colorVariant('full-color', '풀 컬러', 'Full color', LETTERING_COLORS.fullColor),
+function materialVariant(id: string, name: string, english: string, option: ProductOption): Variant {
+  return {
+    id,
+    name,
+    english,
+    kind: 'material',
+    param: 'material_id',
+    options: [option],
+    params: { material_id: String(option.id) },
+  };
+}
+
+/** One price list per color group. */
+const SOLID = colorVariant('solid', '단색', 'Solid colors', COLOR_GROUPS.solid);
+const METALLIC = colorVariant('metallic', '금·은·동', 'Gold · Silver · Bronze', COLOR_GROUPS.metallic);
+const HOLOGRAM = colorVariant('hologram', '홀로그램', 'Hologram', COLOR_GROUPS.hologram);
+const FULL_COLOR = colorVariant('full-color', '풀 컬러', 'Full color', COLOR_GROUPS.fullColor);
+
+/**
+ * Sheet materials (`material_id`), from production's featured-data — every
+ * sheet product offers the same three. Checked against the quotation endpoint
+ * on 2026-10-13, against matte at every size and quantity: clear +35%,
+ * hologram +15% (production rounds sheets to ₩10).
+ *
+ *   material   판스티커   자유형 판스티커   shaped sheets (원형 … 둥근 사각)
+ *   matte      #34        #39               #40
+ *   clear      #35        #38               #41
+ *   hologram   #36        #37               #42
+ *
+ * Asked without a material, production falls back to older books (#33, #32)
+ * that still price exactly like matte; matte is sent explicitly so the
+ * comparison follows the current book.
+ */
+const SHEET_MATERIALS: Variant[] = [
+  materialVariant('matte', '무광 화이트', 'Matte white', { id: 1, name: 'Matte white', swatch: '#F8FAFC' }),
+  materialVariant('clear', '투명', 'Clear', {
+    id: 2,
+    name: 'Clear',
+    swatch: 'repeating-conic-gradient(#cbd5e1 0% 25%, #ffffff 0% 50%) 50% / 6px 6px',
+  }),
+  materialVariant('hologram', '홀로그램', 'Hologram', {
+    id: 3,
+    name: 'Hologram',
+    swatch: COLOR_GROUPS.hologram[0].swatch,
+  }),
 ];
 
 export const CATEGORIES: Category[] = [
@@ -112,16 +170,29 @@ export const PRODUCTS: Product[] = [
   { slug: 'oval-sticker', category: 'stickers', name: '타원형 스티커', english: 'Oval sticker' },
   { slug: 'rounded-sticker', category: 'stickers', name: '둥근 사각 스티커', english: 'Rounded-corner sticker' },
   { slug: 'kiss-cut-sticker', category: 'stickers', name: '도무송 스티커', english: 'Kiss-cut sticker' },
-  { slug: 'sticker-sheet', category: 'stickers', name: '판스티커', english: 'Sticker sheet' },
+  {
+    slug: 'sticker-sheet',
+    category: 'stickers',
+    name: '판스티커',
+    english: 'Sticker sheet',
+    variants: SHEET_MATERIALS,
+  },
   { slug: 'clear-sticker', category: 'stickers', name: '투명 스티커', english: 'Clear sticker' },
   { slug: 'hologram-sticker', category: 'stickers', name: '홀로그램 스티커', english: 'Hologram sticker' },
-  { slug: 'transfer-sticker', category: 'stickers', name: '풀 컬러 레터링 스티커', english: 'Full-color lettering' },
+  {
+    slug: 'transfer-sticker',
+    category: 'stickers',
+    name: '풀 컬러 레터링 스티커',
+    english: 'Full-color lettering',
+    variants: [SOLID, METALLIC, HOLOGRAM, FULL_COLOR],
+  },
   {
     slug: 'vinyl-lettering',
     category: 'stickers',
     name: '글자 커팅 스티커',
     english: 'Vinyl lettering',
-    variants: LETTERING_VARIANTS,
+    // No full color: that is a transfer-sticker option.
+    variants: [SOLID, METALLIC, HOLOGRAM],
   },
 
   { slug: 'die-cut-roll', category: 'roll-stickers', name: '자유형 롤 스티커', english: 'Die-cut roll' },
@@ -133,12 +204,48 @@ export const PRODUCTS: Product[] = [
   { slug: 'oval-roll', category: 'roll-stickers', name: '타원형 롤 스티커', english: 'Oval roll' },
   { slug: 'paper-roll', category: 'roll-stickers', name: '종이 롤 스티커', english: 'Paper roll' },
 
-  { slug: 'die-cut-sheet', category: 'sheet-stickers', name: '자유형 판스티커', english: 'Die-cut sheet' },
-  { slug: 'circle-sheet', category: 'sheet-stickers', name: '원형 판스티커', english: 'Circle sheet' },
-  { slug: 'oval-sheet', category: 'sheet-stickers', name: '타원형 판스티커', english: 'Oval sheet' },
-  { slug: 'square-sheet', category: 'sheet-stickers', name: '정사각형 판스티커', english: 'Square sheet' },
-  { slug: 'rectangle-sheet', category: 'sheet-stickers', name: '직사각형 판스티커', english: 'Rectangle sheet' },
-  { slug: 'rounded-sheet', category: 'sheet-stickers', name: '둥근 사각 판스티커', english: 'Rounded-corner sheet' },
+  {
+    slug: 'die-cut-sheet',
+    category: 'sheet-stickers',
+    name: '자유형 판스티커',
+    english: 'Die-cut sheet',
+    variants: SHEET_MATERIALS,
+  },
+  {
+    slug: 'circle-sheet',
+    category: 'sheet-stickers',
+    name: '원형 판스티커',
+    english: 'Circle sheet',
+    variants: SHEET_MATERIALS,
+  },
+  {
+    slug: 'oval-sheet',
+    category: 'sheet-stickers',
+    name: '타원형 판스티커',
+    english: 'Oval sheet',
+    variants: SHEET_MATERIALS,
+  },
+  {
+    slug: 'square-sheet',
+    category: 'sheet-stickers',
+    name: '정사각형 판스티커',
+    english: 'Square sheet',
+    variants: SHEET_MATERIALS,
+  },
+  {
+    slug: 'rectangle-sheet',
+    category: 'sheet-stickers',
+    name: '직사각형 판스티커',
+    english: 'Rectangle sheet',
+    variants: SHEET_MATERIALS,
+  },
+  {
+    slug: 'rounded-sheet',
+    category: 'sheet-stickers',
+    name: '둥근 사각 판스티커',
+    english: 'Rounded-corner sheet',
+    variants: SHEET_MATERIALS,
+  },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -190,6 +297,45 @@ export function priceListsOf(product: Product): PriceList[] {
 /** "글자 커팅 스티커 · 금·은·동" — for titles and confirmations. */
 export function priceListName(list: PriceList): string {
   return list.variant ? `${list.product.name} · ${list.variant.name}` : list.product.name;
+}
+
+/**
+ * Each product's illustration, as production's featured-data names it
+ * (`product.image`). Served from the live site rather than copied in, so it
+ * always matches what customers see.
+ */
+const PRODUCT_IMAGES: Record<string, string> = {
+  'die-cut-sticker': 'stickers/die-cut',
+  'circle-sticker': 'stickers/circle',
+  'rectangle-sticker': 'stickers/rectangle',
+  'square-sticker': 'stickers/square',
+  'oval-sticker': 'stickers/oval',
+  'rounded-sticker': 'stickers/rounded',
+  'kiss-cut-sticker': 'stickers/kiss-cut',
+  'sticker-sheet': 'stickers/sheet',
+  'clear-sticker': 'stickers/clear',
+  'hologram-sticker': 'stickers/hologram',
+  'transfer-sticker': 'stickers/transfer',
+  'vinyl-lettering': 'stickers/vinyl-lettering',
+  'die-cut-roll': 'roll-stickers/die-cut-labels',
+  'clear-roll': 'roll-stickers/clear-labels',
+  'circle-roll': 'roll-stickers/circle-labels',
+  'square-roll': 'roll-stickers/square-labels',
+  'rectangle-roll': 'roll-stickers/rectangle-labels',
+  'rounded-roll': 'roll-stickers/rounded-labels',
+  'oval-roll': 'roll-stickers/oval-labels',
+  'paper-roll': 'roll-stickers/paper-labels',
+  'die-cut-sheet': 'sheet-stickers/die-cut-sheet',
+  'circle-sheet': 'sheet-stickers/circle-sheet',
+  'oval-sheet': 'sheet-stickers/oval-sheet',
+  'square-sheet': 'sheet-stickers/square-sheet',
+  'rectangle-sheet': 'sheet-stickers/rectangle-sheet',
+  'rounded-sheet': 'sheet-stickers/rounded-sheet',
+};
+
+export function productImageUrl(product: Product): string | null {
+  const path = PRODUCT_IMAGES[product.slug];
+  return path ? `https://www.musticker.com/illustrations/products/${path}.svg` : null;
 }
 
 /** The product's page on the live site. */

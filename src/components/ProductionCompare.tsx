@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { EngineOptions, EngineResult } from '../types';
-import { productUrl, type PriceList, type ProductColor, type Variant } from '../lib/products';
+import { productUrl, type PriceList, type ProductOption, type Variant } from '../lib/products';
 import Swatches from './Swatches';
 import {
   compareDraft,
@@ -149,7 +149,7 @@ export default function ProductionCompare({
         )}
       </section>
 
-      {variant && <ColorCheck slug={product.slug} variant={variant} size={sizes[0] ?? DEFAULT_CHECK_SIZE} />}
+      {variant && <OptionCheck slug={product.slug} variant={variant} size={sizes[0] ?? DEFAULT_CHECK_SIZE} />}
 
       {s.rows === 0 ? (
         <EmptyState
@@ -415,12 +415,12 @@ function Notices({ comparison }: { comparison: ReturnType<typeof compareDraft> }
 }
 
 /* ------------------------------------------------------------------ */
-/* Colors in a variant's price list                                    */
+/* The options a variant's price list stands for                       */
 /* ------------------------------------------------------------------ */
 
 const DEFAULT_CHECK_SIZE = { width: 100, height: 100 };
 
-type ColorQuote = { color: ProductColor; quote: ProductionQuote | null; error: string | null };
+type OptionQuote = { option: ProductOption; quote: ProductionQuote | null; error: string | null };
 
 /** Same price book and the same prices at every quantity. */
 function samePricing(a: ProductionQuote, b: ProductionQuote): boolean {
@@ -429,28 +429,28 @@ function samePricing(a: ProductionQuote, b: ProductionQuote): boolean {
 }
 
 /**
- * A variant's price list stands for several production colors. Quote each of
- * them at one size and confirm they really share a price book — if production
- * ever splits a group, this says so instead of the comparison quietly covering
- * only the first color.
+ * A variant's price list stands for one or more production options (colors, or
+ * a material). Quote each at one size and confirm they really share a price
+ * book — if production ever splits a group, this says so instead of the
+ * comparison quietly covering only the first option.
  */
-function ColorCheck({ slug, variant, size }: { slug: string; variant: Variant; size: { width: number; height: number } }) {
-  const [rows, setRows] = useState<ColorQuote[] | null>(null);
+function OptionCheck({ slug, variant, size }: { slug: string; variant: Variant; size: { width: number; height: number } }) {
+  const [rows, setRows] = useState<OptionQuote[] | null>(null);
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     const ctrl = new AbortController();
     setRows(null);
     void Promise.all(
-      variant.colors.map(async (color): Promise<ColorQuote> => {
+      variant.options.map(async (option): Promise<OptionQuote> => {
         try {
           const quote = await fetchProductionQuote(slug, size.width, size.height, {
             signal: ctrl.signal,
-            params: { ...variant.params, color_id: String(color.id) },
+            params: { ...variant.params, [variant.param]: String(option.id) },
           });
-          return { color, quote, error: null };
+          return { option, quote, error: null };
         } catch (err) {
-          return { color, quote: null, error: (err as Error).message };
+          return { option, quote: null, error: (err as Error).message };
         }
       }),
     ).then((result) => {
@@ -460,7 +460,7 @@ function ColorCheck({ slug, variant, size }: { slug: string; variant: Variant; s
   }, [slug, variant, size.width, size.height, nonce]);
 
   const reference = rows?.find((r) => r.quote)?.quote ?? null;
-  const referenceColor = rows?.find((r) => r.quote === reference)?.color.name;
+  const referenceOption = rows?.find((r) => r.quote === reference)?.option.name;
   const odd = rows?.filter((r) => !r.quote || (reference && !samePricing(r.quote, reference))) ?? [];
   const quantities = reference?.prices.map((p) => p.quantity) ?? [];
 
@@ -468,7 +468,7 @@ function ColorCheck({ slug, variant, size }: { slug: string; variant: Variant; s
     <section className="card px-5 py-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <div className="text-sm font-semibold text-slate-900">
-          Colors in this price list
+          {variant.kind === 'color' ? 'Colors in this price list' : 'Material'}
           <span className="ml-2 font-normal text-slate-500">
             {variant.name} · {variant.english}
           </span>
@@ -480,12 +480,12 @@ function ColorCheck({ slug, variant, size }: { slug: string; variant: Variant; s
       </div>
 
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {variant.colors.map((color) => {
-          const row = rows?.find((r) => r.color.id === color.id);
+        {variant.options.map((option) => {
+          const row = rows?.find((r) => r.option.id === option.id);
           const bad = row != null && odd.includes(row);
           return (
             <span
-              key={color.id}
+              key={option.id}
               className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs ring-1 ring-inset ${
                 bad ? 'bg-amber-50 text-amber-900 ring-amber-200' : 'bg-slate-50 text-slate-700 ring-slate-200'
               }`}
@@ -495,8 +495,8 @@ function ColorCheck({ slug, variant, size }: { slug: string; variant: Variant; s
                   : (row?.error ?? 'Checking…')
               }
             >
-              <Swatches colors={[color]} size={12} />
-              {color.name}
+              <Swatches options={[option]} size={12} />
+              {option.name}
               {row?.quote && <span className="text-[10px] text-slate-400">#{row.quote.pricingId}</span>}
               {!row && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-300" />}
             </span>
@@ -507,13 +507,13 @@ function ColorCheck({ slug, variant, size }: { slug: string; variant: Variant; s
       <div className="mt-2 text-xs">
         {!rows ? (
           <span className="text-slate-500">
-            Quoting each color at {size.width}×{size.height}…
+            Quoting {variant.options.length === 1 ? 'it' : `each ${variant.kind}`} at {size.width}×{size.height}…
           </span>
         ) : !reference ? (
-          <span className="text-red-700">Production quoted none of these colors: {rows[0]?.error}</span>
+          <span className="text-red-700">Production would not quote this {variant.kind}: {rows[0]?.error}</span>
         ) : odd.length === 0 ? (
           <span className="text-emerald-700">
-            ✓ {variant.colors.length === 1 ? 'Priced' : `All ${variant.colors.length} colors are priced`} from{' '}
+            ✓ {variant.options.length === 1 ? 'Priced' : `All ${variant.options.length} ${variant.kind}s are priced`} from{' '}
             <span className="font-medium">{reference.pricingName}</span> (#{reference.pricingId}), identical at{' '}
             {size.width}×{size.height}
             {quantities.length > 0 && (
@@ -526,8 +526,8 @@ function ColorCheck({ slug, variant, size }: { slug: string; variant: Variant; s
           </span>
         ) : (
           <span className="text-amber-800">
-            ⚠ {odd.map((r) => r.color.name).join(', ')} {odd.length === 1 ? 'is' : 'are'} not priced like{' '}
-            {referenceColor} ({reference.pricingName}). This price list is compared using {referenceColor}'s prices.
+            ⚠ {odd.map((r) => r.option.name).join(', ')} {odd.length === 1 ? 'is' : 'are'} not priced like{' '}
+            {referenceOption} ({reference.pricingName}). This price list is compared using {referenceOption}'s prices.
           </span>
         )}
       </div>

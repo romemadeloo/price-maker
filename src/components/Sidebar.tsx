@@ -3,6 +3,7 @@ import type { CloudSync } from '../hooks/useCloudSync';
 import { timeAgo } from '../lib/format';
 import { CATEGORIES, PRICE_LISTS, PRODUCTS, priceListsOf, type PriceList, type Product } from '../lib/products';
 import Swatches from './Swatches';
+import ProductThumb from './ProductThumb';
 import type { ProductStatus } from '../state/workspace';
 import type { EngineOptions } from '../types';
 import { ChevronIcon, CloseIcon, GridIcon, SearchIcon } from './icons';
@@ -49,9 +50,9 @@ export default function Sidebar({
     return PRODUCTS.flatMap((product) => {
       const lists = priceListsOf(product);
       if (matches(product.name, product.english, product.slug)) return [{ product, lists }];
-      // Searching a color ("gold", "홀로그램") finds the color group it belongs to.
+      // Searching a color or material ("gold", "투명") finds the price list it belongs to.
       const hits = lists.filter(
-        (l) => l.variant && matches(l.variant.name, l.variant.english, ...l.variant.colors.map((c) => c.name)),
+        (l) => l.variant && matches(l.variant.name, l.variant.english, ...l.variant.options.map((c) => c.name)),
       );
       return hits.length > 0 ? [{ product, lists: hits }] : [];
     });
@@ -263,11 +264,16 @@ function VariantGroup({
 }) {
   return (
     <li>
-      <div className="px-2.5 pb-0.5 pt-1.5">
-        <div className="truncate text-[13px] text-slate-300">{product.name}</div>
-        <div className="truncate text-[11px] text-slate-500">{product.english} · priced by color</div>
+      <div className="flex items-center gap-2.5 px-2.5 pb-0.5 pt-1.5">
+        <ProductThumb product={product} size={30} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13px] text-slate-300">{product.name}</div>
+          <div className="truncate text-[11px] text-slate-500">
+            {product.english} · priced by {product.variants?.[0].kind ?? 'option'}
+          </div>
+        </div>
       </div>
-      <ul className="ml-3 space-y-0.5 border-l border-slate-800 pl-2">
+      <ul className="ml-6 space-y-0.5 border-l border-slate-800 pl-2">
         {lists.map((list) => {
           const active = list.key === activeKey;
           return (
@@ -278,7 +284,7 @@ function VariantGroup({
                   active ? 'bg-brand-600/15 text-white ring-1 ring-inset ring-brand-500/40' : 'hover:bg-slate-900'
                 }`}
               >
-                {list.variant && <Swatches colors={list.variant.colors} size={10} max={4} />}
+                {list.variant && <Swatches options={list.variant.options} size={10} max={4} />}
                 <div className="min-w-0 flex-1">
                   <div
                     className={`truncate text-[12px] ${active ? 'font-medium text-white' : 'text-slate-300 group-hover:text-white'}`}
@@ -316,6 +322,7 @@ function ProductItem({
           active ? 'bg-brand-600/15 text-white ring-1 ring-inset ring-brand-500/40' : 'hover:bg-slate-900'
         }`}
       >
+        <ProductThumb product={product} size={30} />
         <div className="min-w-0 flex-1">
           <div className={`truncate text-[13px] ${active ? 'font-medium text-white' : 'text-slate-300 group-hover:text-white'}`}>
             {product.name}

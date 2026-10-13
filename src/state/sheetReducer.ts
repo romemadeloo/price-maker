@@ -36,6 +36,12 @@ export type SheetAction =
   | { type: 'deleteRows'; rowIndexes: number[] }
   | { type: 'addColumn'; value?: string }
   | { type: 'deleteColumn'; colIndex: number }
+  /** Insert blank quantity columns before quantity index `atIndex`. */
+  | { type: 'insertColumns'; atIndex: number; count: number }
+  /** Delete quantity columns by quantity index; at least one always stays. */
+  | { type: 'deleteColumns'; colIndexes: number[] }
+  /** Copy the first row (down) or first column (right) of a range across it. */
+  | { type: 'fill'; rowStart: number; rowEnd: number; colStart: number; colEnd: number; direction: 'down' | 'right' }
   | { type: 'clearCells'; rowStart: number; rowEnd: number; colStart: number; colEnd: number }
   | { type: 'paste'; rowIndex: number; colIndex: number; matrix: string[][] }
   | { type: 'pasteQuantities'; colIndex: number; matrix: string[][] }
@@ -92,6 +98,48 @@ export function sheetReducer(state: SheetState, action: SheetAction): SheetState
         prices: r.prices.filter((_, i) => i !== action.colIndex),
       }));
       return { quantities, rows };
+    }
+
+    case 'insertColumns': {
+      if (action.count <= 0) return state;
+      const at = Math.max(0, Math.min(state.quantities.length, action.atIndex));
+      const blanks = new Array<string>(action.count).fill('');
+      const quantities = [...state.quantities.slice(0, at), ...blanks, ...state.quantities.slice(at)];
+      const rows = state.rows.map((r) => ({
+        ...r,
+        prices: [...r.prices.slice(0, at), ...blanks, ...r.prices.slice(at)],
+      }));
+      return { quantities, rows };
+    }
+
+    case 'deleteColumns': {
+      const drop = new Set(action.colIndexes.filter((i) => i >= 0 && i < state.quantities.length));
+      if (drop.size === 0) return state;
+      // Keep one column to type into, as with rows.
+      if (drop.size >= state.quantities.length) drop.delete(Math.min(...drop));
+      const quantities = state.quantities.filter((_, i) => !drop.has(i));
+      const rows = state.rows.map((r) => ({ ...r, prices: r.prices.filter((_, i) => !drop.has(i)) }));
+      return { quantities, rows };
+    }
+
+    case 'fill': {
+      const { rowStart, rowEnd, colStart, colEnd, direction } = action;
+      if (direction === 'down' ? rowEnd <= rowStart : colEnd <= colStart) return state;
+      const rows = state.rows.slice();
+      const source = rows[rowStart];
+      for (let r = rowStart; r <= rowEnd; r++) {
+        const row = rows[r];
+        if (!row || !source) continue;
+        const next: SheetRow = { ...row, prices: row.prices.slice() };
+        for (let c = colStart; c <= colEnd; c++) {
+          const value = direction === 'down' ? getCellValue(state, rowStart, c) : getCellValue(state, r, colStart);
+          if (c === COL_SIZE) next.size = value;
+          else if (c === COL_BASE_AREA) next.baseArea = value;
+          else if (c - FIRST_PRICE_COL < next.prices.length) next.prices[c - FIRST_PRICE_COL] = value;
+        }
+        rows[r] = next;
+      }
+      return { ...state, rows };
     }
 
     case 'clearCells': {
@@ -254,6 +302,20 @@ export function matrixToSheet(matrix: string[][], fallbackQuantities: string[]):
 
   if (rows.length === 0) rows.push(emptyRow(quantities.length));
   return { quantities, rows };
+}
+
+/**
+ * The whole table as TSV — a Size | Base Area | quantities header, then every
+ * row up to the last one holding anything. Pastes straight into Google Sheets
+ * or Excel, and back into this grid (the header is recognised).
+ */
+export function sheetToTsv(sheet: SheetState): string {
+  let last = sheet.rows.length - 1;
+  const blank = (r: SheetRow) => r.size.trim() === '' && r.baseArea.trim() === '' && r.prices.every((p) => p.trim() === '');
+  while (last >= 0 && blank(sheet.rows[last])) last--;
+  const header = ['Size', 'Base Area', ...sheet.quantities].join('\t');
+  if (last < 0) return header;
+  return [header, selectionToTsv(sheet, 0, last, 0, FIRST_PRICE_COL + sheet.quantities.length - 1)].join('\n');
 }
 
 /** Serialize a rectangular selection back to TSV for the clipboard. */

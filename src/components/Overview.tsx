@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { CATEGORIES, PRICE_LISTS, PRODUCTS } from '../lib/products';
 import Swatches from './Swatches';
+import ProductThumb from './ProductThumb';
 import { signedPct, timeAgo } from '../lib/format';
 import type { ProductStatus } from '../state/workspace';
 import { ChevronIcon, MenuIcon } from './icons';
@@ -40,7 +41,7 @@ export default function Overview({ statuses, onSelectProduct, onOpenNav }: Props
           <Stat
             label="Price lists drafted"
             value={`${drafted}`}
-            sub={`of ${PRICE_LISTS.length} — ${PRODUCTS.length} products, some priced by color`}
+            sub={`of ${PRICE_LISTS.length} — ${PRODUCTS.length} products, some priced by color or material`}
           />
           <Stat label="Compared with production" value={`${compared}`} sub={`${drafted - compared} draft(s) not compared yet`} />
           <Stat label="Differ from production" value={`${differing}`} sub="at least one price changed" tone="amber" />
@@ -77,15 +78,20 @@ export default function Overview({ statuses, onSelectProduct, onOpenNav }: Props
                         className="group cursor-pointer border-t border-slate-100 hover:bg-slate-50"
                       >
                         <td className="px-5 py-2.5">
-                          <div className="whitespace-nowrap font-medium text-slate-900">{p.name}</div>
-                          <div className="whitespace-nowrap text-xs text-slate-500">{p.english}</div>
-                          {l.variant && (
-                            <div className="mt-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-brand-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-800">
-                              <Swatches colors={l.variant.colors} size={10} />
-                              {l.variant.name}
-                              <span className="font-normal text-brand-600">{l.variant.english}</span>
+                          <div className="flex items-start gap-3">
+                            <ProductThumb product={p} size={40} />
+                            <div>
+                              <div className="whitespace-nowrap font-medium text-slate-900">{p.name}</div>
+                              <div className="whitespace-nowrap text-xs text-slate-500">{p.english}</div>
+                              {l.variant && (
+                                <div className="mt-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-brand-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-800">
+                                  <Swatches options={l.variant.options} size={10} />
+                                  {l.variant.name}
+                                  <span className="font-normal text-brand-600">{l.variant.english}</span>
+                                </div>
+                              )}
                             </div>
-                          )}
+                          </div>
                         </td>
                         <td className="px-3 py-2.5 text-xs text-slate-600">
                           {s?.hasDraft ? (

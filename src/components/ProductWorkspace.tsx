@@ -25,10 +25,12 @@ import { runEngine } from '../lib/engine';
 import { parseDelimited } from '../lib/parse';
 import { CATEGORIES, priceListName, productUrl, type PriceList } from '../lib/products';
 import Swatches from './Swatches';
+import ProductThumb from './ProductThumb';
 import { compareDraft, type ProductionSnapshot } from '../lib/production';
 import { timeAgo } from '../lib/format';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import { DEFAULT_QUANTITIES, emptySheet, matrixToSheet, nextRowId, sheetReducer } from '../state/sheetReducer';
+import { DEFAULT_QUANTITIES, emptySheet, matrixToSheet, nextRowId } from '../state/sheetReducer';
+import { historyReducer, initHistory } from '../state/history';
 import { buildSampleSheet } from '../state/sampleData';
 import type { EngineOptions, SheetState } from '../types';
 import type { HeldDraft } from '../state/workspace';
@@ -102,9 +104,13 @@ export default function ProductWorkspace({
   onOpenNav,
 }: Props) {
   const { product, variant } = priceList;
-  const [sheet, dispatch] = useReducer(sheetReducer, initialSheet, (s) => s ?? emptySheet(DEFAULT_QUANTITIES, 15));
+  // The sheet lives inside an undo history; every edit, paste, insert, delete,
+  // Load sample and Clear can be undone from the grid (Ctrl+Z / Ctrl+Y).
+  const [history, dispatch] = useReducer(historyReducer, initialSheet, (s) =>
+    initHistory(s ?? emptySheet(DEFAULT_QUANTITIES, 15)),
+  );
+  const sheet = history.present;
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
-  const [selectedRows, setSelectedRows] = useState<number[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [recalcNonce, setRecalcNonce] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -174,10 +180,6 @@ export default function ProductWorkspace({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const deleteSelectedRows = () => {
-    if (selectedRows.length === 0) return;
-    dispatch({ type: 'deleteRows', rowIndexes: selectedRows });
-  };
 
   const clearTable = () => {
     if (window.confirm(`Clear the drafted price table for ${priceListName(priceList)}?`)) dispatch({ type: 'clearAll' });
@@ -194,6 +196,7 @@ export default function ProductWorkspace({
           <button className="btn btn-default mt-1 px-2 lg:hidden" onClick={onOpenNav} aria-label="Open products">
             <MenuIcon />
           </button>
+          <ProductThumb product={product} size={56} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 text-xs text-slate-500">
               <span>{category?.english}</span>
@@ -205,7 +208,7 @@ export default function ProductWorkspace({
               <span className="text-sm font-normal text-slate-400">{product.english}</span>
               {variant && (
                 <span className="inline-flex items-center gap-1.5 self-center rounded-lg bg-brand-50 px-2 py-0.5 text-sm font-medium text-brand-800 ring-1 ring-inset ring-brand-100">
-                  <Swatches colors={variant.colors} />
+                  <Swatches options={variant.options} />
                   {variant.name}
                   <span className="font-normal text-brand-600">{variant.english}</span>
                 </span>
@@ -357,27 +360,15 @@ export default function ProductWorkspace({
 
       <main className="min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-6">
         {tab === 'table' && (
-          <div className="flex h-full flex-col gap-3">
-            <GridToolbar
-              rowCount={sheet.rows.length}
-              columnCount={sheet.quantities.length}
-              selectedRowCount={selectedRows.length}
-              onAddRow={() => dispatch({ type: 'addRows', count: 1 })}
-              onAddManyRows={() => dispatch({ type: 'addRows', count: 100 })}
-              onDeleteRows={deleteSelectedRows}
-              onAddColumn={() => dispatch({ type: 'addColumn' })}
-            />
-            <div className="min-h-0 flex-1">
-              <SpreadsheetGrid
-                sheet={sheet}
-                dispatch={dispatch}
-                parsed={result.parsed}
-                cellIndex={result.cellIndex}
-                focusRequest={focusRequest}
-                onSelectionChange={setSelectedRows}
-              />
-            </div>
-          </div>
+          <SpreadsheetGrid
+            sheet={sheet}
+            dispatch={dispatch}
+            canUndo={history.past.length > 0}
+            canRedo={history.future.length > 0}
+            parsed={result.parsed}
+            cellIndex={result.cellIndex}
+            focusRequest={focusRequest}
+          />
         )}
 
         {tab === 'rates' && <RateTable result={result} />}
@@ -433,44 +424,6 @@ function SyncBanner({
         <div className="text-xs text-slate-600">{body}</div>
       </div>
       <div className="flex gap-2">{actions}</div>
-    </div>
-  );
-}
-
-function GridToolbar({
-  rowCount,
-  columnCount,
-  selectedRowCount,
-  onAddRow,
-  onAddManyRows,
-  onDeleteRows,
-  onAddColumn,
-}: {
-  rowCount: number;
-  columnCount: number;
-  selectedRowCount: number;
-  onAddRow: () => void;
-  onAddManyRows: () => void;
-  onDeleteRows: () => void;
-  onAddColumn: () => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <button className="btn btn-default" onClick={onAddRow}>
-        + Row
-      </button>
-      <button className="btn btn-default" onClick={onAddManyRows}>
-        + 100 Rows
-      </button>
-      <button className="btn btn-default" onClick={onAddColumn}>
-        + Quantity column
-      </button>
-      <button className="btn btn-danger" onClick={onDeleteRows} disabled={selectedRowCount === 0}>
-        Delete {selectedRowCount > 0 ? `${selectedRowCount} ` : ''}row(s)
-      </button>
-      <span className="ml-auto text-xs text-slate-500">
-        {rowCount.toLocaleString()} rows × {columnCount} quantity columns · Ctrl+V paste · Ctrl+C copy · Delete clears
-      </span>
     </div>
   );
 }

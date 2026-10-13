@@ -142,3 +142,60 @@ export const CloseIcon = (p: P) => (
     <path d="M6 6l12 12M18 6 6 18" />
   </Icon>
 );
+export const UndoIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+  </Icon>
+);
+export const RedoIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="m15 14 5-5-5-5" />
+    <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />
+  </Icon>
+);
+export const CopyIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="8" y="8" width="12" height="12" rx="2" />
+    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+  </Icon>
+);
+export const CutIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="18" r="3" />
+    <path d="M8.1 16 18 4M15.9 16 6 4" />
+  </Icon>
+);
+export const PasteIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="5" y="4" width="14" height="17" rx="2" />
+    <path d="M9 4V3h6v1M9 11h6M9 15h4" />
+  </Icon>
+);
+export const RowInsertIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="18" height="6" rx="1.5" />
+    <rect x="3" y="14" width="18" height="6" rx="1.5" strokeDasharray="2 2" />
+    <path d="M12 15.5v3M10.5 17h3" />
+  </Icon>
+);
+export const ColumnInsertIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="4" y="3" width="6" height="18" rx="1.5" />
+    <rect x="14" y="3" width="6" height="18" rx="1.5" strokeDasharray="2 2" />
+    <path d="M17 10.5v3M15.5 12h3" />
+  </Icon>
+);
+export const FillDownIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="5" y="3" width="14" height="5" rx="1" />
+    <path d="M12 10v10m0 0-3.5-3.5M12 20l3.5-3.5" />
+  </Icon>
+);
+export const EraserIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="m7 21-4-4 11-11 7 7-8 8H7Z" />
+    <path d="M21 21H7M10 10l7 7" />
+  </Icon>
+);
