@@ -1,5 +1,5 @@
 import { DEFAULT_ENGINE_OPTIONS, type EngineOptions, type SheetRow, type SheetState } from '../types';
-import { DEFAULT_PRODUCT_SLUG, findProduct } from '../lib/products';
+import { DEFAULT_PRODUCT_SLUG, findPriceList } from '../lib/products';
 import { compareDraft, type CompareSummary, type ProductionSnapshot } from '../lib/production';
 import { parseSheet } from '../lib/parse';
 import { PRICE_UNITS, type PriceUnit } from '../lib/calculator';
@@ -99,7 +99,7 @@ export function loadWorkspace(): Workspace {
     const stored = JSON.parse(raw) as Partial<Workspace>;
     const drafts: Record<string, ProductDraft> = {};
     for (const [slug, draft] of Object.entries(stored.drafts ?? {})) {
-      if (findProduct(slug) && isSheet(draft?.sheet)) {
+      if (findPriceList(slug) && isSheet(draft?.sheet)) {
         drafts[slug] = {
           sheet: hydrateSheet(draft.sheet),
           updatedAt: String(draft.updatedAt ?? ''),
@@ -113,7 +113,7 @@ export function loadWorkspace(): Workspace {
     // local-only work, so mark it all for upload.
     const legacy = stored.versions == null;
     return {
-      activeSlug: stored.activeSlug && findProduct(stored.activeSlug) ? stored.activeSlug : base.activeSlug,
+      activeSlug: stored.activeSlug && findPriceList(stored.activeSlug) ? stored.activeSlug : base.activeSlug,
       drafts,
       snapshots,
       options: { ...DEFAULT_ENGINE_OPTIONS, ...(stored.options ?? {}) },
@@ -257,7 +257,7 @@ export function staleSlugs(
   for (const [slug, stamp] of Object.entries(index.snapshotStamps)) {
     if (!workspace.dirtySnapshots[slug] && stamp > snapshotStamp(workspace.snapshots[slug])) out.add(slug);
   }
-  return [...out].filter((slug) => findProduct(slug));
+  return [...out].filter((slug) => findPriceList(slug));
 }
 
 /**
@@ -285,7 +285,7 @@ export function mergeRemote(
   let changed = false;
 
   for (const slug of covered) {
-    if (!findProduct(slug) || workspace.dirty[slug]) continue;
+    if (!findPriceList(slug) || workspace.dirty[slug]) continue;
     const remoteVersion = remote.versions[slug] ?? 0;
     const localVersion = workspace.versions[slug] ?? 0;
     if (remoteVersion === localVersion) continue;
@@ -310,7 +310,7 @@ export function mergeRemote(
   }
 
   for (const [slug, snapshot] of Object.entries(remote.snapshots)) {
-    if (!findProduct(slug) || workspace.dirtySnapshots[slug]) continue;
+    if (!findPriceList(slug) || workspace.dirtySnapshots[slug]) continue;
     if (snapshotStamp(snapshot) > snapshotStamp(snapshots[slug])) {
       snapshots[slug] = snapshot;
       changed = true;
