@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
+import NavRail, { type RailTarget } from './components/NavRail';
 import Overview from './components/Overview';
 import ProductWorkspace, { type Tab } from './components/ProductWorkspace';
 import { findPriceList, PRICE_LISTS } from './lib/products';
@@ -124,7 +125,19 @@ export default function App() {
   const draft = workspace.drafts[slug];
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-[#f5f6fa]">
+      <NavRail
+        active={view === 'overview' ? 'overview' : tab === 'compare' ? 'compare' : tab === 'table' ? 'table' : null}
+        onNavigate={(target: RailTarget) => {
+          if (target === 'overview') setView('overview');
+          else {
+            setView('product');
+            setTab(target);
+          }
+        }}
+        userName={workspace.userName}
+        sync={sync}
+      />
       <Sidebar
         view={view}
         activeSlug={slug}
@@ -146,7 +159,18 @@ export default function App() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {view === 'overview' ? (
-          <Overview statuses={statuses} onSelectProduct={selectProduct} onOpenNav={() => setNavOpen(true)} />
+          <Overview
+            statuses={statuses}
+            onSelectProduct={(key) => {
+              selectProduct(key);
+              setTab('table');
+            }}
+            onOpenCompare={(key) => {
+              selectProduct(key);
+              setTab('compare');
+            }}
+            onOpenNav={() => setNavOpen(true)}
+          />
         ) : (
           <ProductWorkspace
             key={`${slug}:${revision}`}

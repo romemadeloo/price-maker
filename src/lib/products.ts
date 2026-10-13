@@ -183,7 +183,7 @@ export const PRODUCTS: Product[] = [
     slug: 'transfer-sticker',
     category: 'stickers',
     name: '풀 컬러 레터링 스티커',
-    english: 'Full-color lettering',
+    english: 'Transfer sticker',
     variants: [SOLID, METALLIC, HOLOGRAM, FULL_COLOR],
   },
   {

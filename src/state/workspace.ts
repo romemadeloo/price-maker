@@ -1,7 +1,7 @@
 import { DEFAULT_ENGINE_OPTIONS, type EngineOptions, type SheetRow, type SheetState } from '../types';
 import { DEFAULT_PRODUCT_SLUG, findPriceList } from '../lib/products';
 import { compareDraft, type CompareSummary, type ProductionSnapshot } from '../lib/production';
-import { parseSheet } from '../lib/parse';
+import { parseNumeric, parseSheet } from '../lib/parse';
 import { PRICE_UNITS, type PriceUnit } from '../lib/calculator';
 import type { RemoteDraft, RemoteWorkspace } from '../lib/sync';
 import { nextRowId } from './sheetReducer';
@@ -165,22 +165,53 @@ export function isBlankSheet(sheet: SheetState): boolean {
 }
 
 /** Rows that carry anything, and how many prices they hold. */
-export function draftStats(sheet: SheetState): { rows: number; prices: number } {
+export interface DraftStats {
+  rows: number;
+  prices: number;
+  /** Smallest and largest base area drafted, mm². */
+  areaMin: number | null;
+  areaMax: number | null;
+  /** Quantity columns with a value, and their range. */
+  columns: number;
+  qtyMin: number | null;
+  qtyMax: number | null;
+}
+
+/** Rows that carry anything, how many prices they hold, and the ranges they span. */
+export function draftStats(sheet: SheetState): DraftStats {
   let rows = 0;
   let prices = 0;
+  let areaMin: number | null = null;
+  let areaMax: number | null = null;
   for (const r of sheet.rows) {
     const filled = r.prices.filter((p) => p.trim() !== '').length;
     if (filled > 0 || r.size.trim() !== '' || r.baseArea.trim() !== '') rows += 1;
     prices += filled;
+    const area = parseNumeric(r.baseArea).value;
+    if (area != null && area > 0) {
+      areaMin = areaMin == null ? area : Math.min(areaMin, area);
+      areaMax = areaMax == null ? area : Math.max(areaMax, area);
+    }
   }
-  return { rows, prices };
+  const qtys = sheet.quantities.map((q) => parseNumeric(q).value).filter((q): q is number => q != null && q > 0);
+  return {
+    rows,
+    prices,
+    areaMin,
+    areaMax,
+    columns: qtys.length,
+    qtyMin: qtys.length ? Math.min(...qtys) : null,
+    qtyMax: qtys.length ? Math.max(...qtys) : null,
+  };
 }
 
 /** What the sidebar and overview show for one product. */
-export interface ProductStatus {
+export interface ProductStatus extends Omit<DraftStats, 'rows' | 'prices'> {
   hasDraft: boolean;
   rows: number;
   prices: number;
+  /** Rounding applied before comparing (1 = exact). */
+  roundTo: number;
   updatedAt: string | null;
   updatedBy: string | null;
   /** Edited here and not on the server yet. */
@@ -200,6 +231,12 @@ export function productStatus(workspace: Workspace, slug: string): ProductStatus
       hasDraft: false,
       rows: 0,
       prices: 0,
+      areaMin: null,
+      areaMax: null,
+      columns: 0,
+      qtyMin: null,
+      qtyMax: null,
+      roundTo: workspace.compareRounding[slug] ?? 1,
       updatedAt: null,
       updatedBy: null,
       unsynced,
@@ -216,6 +253,7 @@ export function productStatus(workspace: Workspace, slug: string): ProductStatus
   return {
     hasDraft: true,
     ...stats,
+    roundTo: workspace.compareRounding[slug] ?? 1,
     updatedAt: draft.updatedAt || null,
     updatedBy: draft.updatedBy,
     unsynced,

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { EngineOptions, EngineResult } from '../types';
 import { productUrl, type PriceList, type ProductOption, type Variant } from '../lib/products';
 import Swatches from './Swatches';
+import { DIFF, HEAT, HEAT_LEGEND, heatStep } from '../lib/compareColors';
 import {
   compareDraft,
   comparisonToCsv,
@@ -36,7 +37,7 @@ interface Props {
 
 type View = 'matrix' | 'list';
 type Filter = 'all' | 'changed' | 'higher' | 'lower';
-type Measure = 'won' | 'pct';
+type Measure = 'won' | 'pct' | 'draft' | 'prod';
 
 /** Parallel requests to production. Polite, and still quick for a few hundred sizes. */
 const CONCURRENCY = 4;
@@ -74,69 +75,77 @@ export default function ProductionCompare({
     downloadCsv(comparisonToCsv(comparison), `${priceList.key.replace('~', '-')}-vs-production-${stamp}.csv`);
   };
 
+  const [spotOpen, setSpotOpen] = useState(false);
+
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto pb-2">
-      {/* ------------------------------------------------ source + actions */}
-      <section className="card flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-slate-900">Draft vs production</div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+    <div className="flex h-full flex-col gap-3 overflow-y-auto pb-2">
+      {/* ------------------------------------------------ source, rounding, actions — one compact card */}
+      <section className="card px-4 py-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-xs text-slate-500">
+            <span className="mr-1 text-sm font-bold text-slate-900">Draft vs production</span>
             {comparison.pricingName ? (
               <Chip tone="brand">
                 {comparison.pricingName}
                 {comparison.pricingId != null && <span className="opacity-60">#{comparison.pricingId}</span>}
               </Chip>
             ) : (
-              <span>Live prices from musticker.com, per drafted size.</span>
+              <span>live prices from musticker.com, per drafted size</span>
             )}
             {comparison.normalizedNr != null && <Chip>rounds to ₩{groupDigits(comparison.normalizedNr)}</Chip>}
             {comparison.sheet && (
               <Chip tone="amber">
-                priced per {comparison.sheet.name} sheet ({comparison.sheet.width}×{comparison.sheet.height})
+                per {comparison.sheet.name} sheet ({comparison.sheet.width}×{comparison.sheet.height})
               </Chip>
             )}
-            {snapshot && <span>· fetched {timeAgo(snapshot.fetchedAt)}</span>}
+            {snapshot && <span className="text-slate-400">· fetched {timeAgo(snapshot.fetchedAt)}</span>}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {snapshot && (
+              <button
+                className={`btn ${spotOpen ? 'btn-primary' : 'btn-default'}`}
+                onClick={() => setSpotOpen((o) => !o)}
+                aria-pressed={spotOpen}
+              >
+                Spot check
+              </button>
+            )}
+            <a className="btn btn-ghost" href={productUrl(product)} target="_blank" rel="noreferrer" title="Open the live product page">
+              <ExternalIcon width={14} height={14} />
+            </a>
+            {snapshot && (
+              <button className="btn btn-default" onClick={exportCsv} disabled={s.compared === 0} title="Download the comparison as CSV">
+                <DownloadIcon width={14} height={14} />
+                Export
+              </button>
+            )}
+            {snapshot && missing.length > 0 && !busy && (
+              <button className="btn btn-default" onClick={() => fetchSizes(missing, 'merge')}>
+                Fetch {missing.length.toLocaleString()} new
+              </button>
+            )}
+            {busy ? (
+              <button className="btn btn-default" onClick={cancel}>
+                Cancel
+              </button>
+            ) : (
+              <button className="btn btn-primary" onClick={() => fetchSizes(sizes, 'replace')} disabled={sizes.length === 0}>
+                <RefreshIcon width={14} height={14} />
+                {snapshot ? 'Refresh' : 'Fetch production prices'}
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <a className="btn btn-ghost" href={productUrl(product)} target="_blank" rel="noreferrer">
-            <ExternalIcon width={14} height={14} />
-            Live page
-          </a>
-          {snapshot && (
-            <button className="btn btn-default" onClick={exportCsv} disabled={s.compared === 0}>
-              <DownloadIcon width={14} height={14} />
-              Export
-            </button>
-          )}
-          {snapshot && missing.length > 0 && !busy && (
-            <button className="btn btn-default" onClick={() => fetchSizes(missing, 'merge')}>
-              Fetch {missing.length.toLocaleString()} new size{missing.length === 1 ? '' : 's'}
-            </button>
-          )}
-          {busy ? (
-            <button className="btn btn-default" onClick={cancel}>
-              Cancel
-            </button>
-          ) : (
-            <button className="btn btn-primary" onClick={() => fetchSizes(sizes, 'replace')} disabled={sizes.length === 0}>
-              <RefreshIcon width={14} height={14} />
-              {snapshot ? 'Refresh production prices' : 'Fetch production prices'}
-            </button>
-          )}
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-2.5">
+          <RoundingControl rounding={rounding} onRounding={onRounding} productionUnit={comparison.normalizedNr} rounded={s.rounded} />
+          {variant && <OptionCheck slug={product.slug} variant={variant} size={sizes[0] ?? DEFAULT_CHECK_SIZE} />}
         </div>
 
-        <RoundingControl
-          rounding={rounding}
-          onRounding={onRounding}
-          productionUnit={comparison.normalizedNr}
-          rounded={s.rounded}
-        />
-
         {busy && (
-          <div className="w-full">
-            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+          <div className="mt-2.5">
+            <div className="h-1 overflow-hidden rounded-full bg-slate-100">
               <div
                 className="h-full rounded-full bg-brand-500 transition-[width]"
                 style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }}
@@ -149,12 +158,10 @@ export default function ProductionCompare({
         )}
       </section>
 
-      {variant && <OptionCheck slug={product.slug} variant={variant} size={sizes[0] ?? DEFAULT_CHECK_SIZE} />}
-
       {s.rows === 0 ? (
         <EmptyState
           title="Nothing drafted yet"
-          body="Enter or paste this price list's prices in the Price Table tab. Each row's size (e.g. 100*100) is what gets quoted against production."
+          body="Enter or paste this price list's prices in the Price Table tab. Each row's base area is what gets quoted against production."
         />
       ) : !snapshot ? (
         <EmptyState
@@ -171,22 +178,34 @@ export default function ProductionCompare({
         />
       ) : (
         <>
-          <Kpis comparison={comparison} />
-          <Notices comparison={comparison} />
-          <SpotCheck priceList={priceList} result={result} options={options} rounding={rounding} />
+          <StatsStrip comparison={comparison} />
+          {spotOpen && <SpotCheck priceList={priceList} result={result} options={options} rounding={rounding} />}
 
-          <section className="card flex min-h-[420px] flex-1 flex-col overflow-hidden">
-            <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
-              <Seg value={view} onChange={setView} options={[['matrix', 'Matrix'], ['list', 'Differences']]} />
+          <section className="card flex min-h-[440px] flex-1 flex-col overflow-hidden">
+            <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+              <div className="pills">
+                <button aria-pressed={view === 'matrix'} onClick={() => setView('matrix')}>
+                  Heatmap
+                </button>
+                <button aria-pressed={view === 'list'} onClick={() => setView('list')}>
+                  Differences
+                </button>
+              </div>
               <Seg
                 value={filter}
                 onChange={setFilter}
-                options={[['all', 'All'], ['changed', 'Changed'], ['higher', 'Draft higher'], ['lower', 'Draft lower']]}
+                options={[['all', 'All'], ['changed', 'Changed'], ['higher', 'Higher'], ['lower', 'Lower']]}
               />
-              <Seg value={measure} onChange={setMeasure} options={[['pct', 'Δ %'], ['won', 'Δ ₩']]} />
-              <Legend />
+              {view === 'matrix' && (
+                <Seg
+                  value={measure}
+                  onChange={setMeasure}
+                  options={[['pct', 'Δ %'], ['won', 'Δ ₩'], ['draft', 'Draft'], ['prod', 'Production']]}
+                />
+              )}
+              <HeatLegend />
             </div>
-            <div className="min-h-0 flex-1 overflow-auto">
+            <div className="min-h-0 flex-1 overflow-auto border-t border-slate-100">
               {view === 'matrix' ? (
                 <Matrix comparison={comparison} filter={filter} measure={measure} onGoToCell={onGoToCell} />
               ) : (
@@ -266,151 +285,123 @@ function useProductionFetch(
 /* Summary                                                             */
 /* ------------------------------------------------------------------ */
 
-function Kpis({ comparison }: { comparison: ReturnType<typeof compareDraft> }) {
+/**
+ * The headline numbers in one compact strip, the match/higher/lower split as a
+ * diverging bar under them, and anything worth knowing as small notes.
+ */
+function StatsStrip({ comparison }: { comparison: ReturnType<typeof compareDraft> }) {
   const s = comparison.summary;
-  const share = (n: number) => (s.compared === 0 ? 0 : (n / s.compared) * 100);
+  const share = (n: number) => (s.compared === 0 ? '0%' : `${((n / s.compared) * 100).toFixed(0)}%`);
   const largest = s.largest;
   const largestRow = largest ? comparison.rows.find((r) => r.rowIndex === largest.rowIndex) : null;
 
+  const segs = [
+    { n: s.lower, color: DIFF.lower },
+    { n: s.same, color: DIFF.match },
+    { n: s.higher, color: DIFF.higher },
+  ].filter((x) => x.n > 0);
+
   return (
-    <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-      <Kpi label="Prices compared" value={s.compared.toLocaleString()} sub={`${s.rows.toLocaleString()} drafted row(s)`} />
-      <Kpi
-        label="Match production"
-        value={s.same.toLocaleString()}
-        sub={`${share(s.same).toFixed(0)}% of compared`}
-        tone="good"
-        icon={<CheckIcon width={14} height={14} />}
-      />
-      <Kpi
-        label="Draft higher"
-        value={s.higher.toLocaleString()}
-        sub={`${share(s.higher).toFixed(0)}% of compared`}
-        tone="up"
-        icon={<ArrowUpIcon width={14} height={14} />}
-      />
-      <Kpi
-        label="Draft lower"
-        value={s.lower.toLocaleString()}
-        sub={`${share(s.lower).toFixed(0)}% of compared`}
-        tone="down"
-        icon={<ArrowDownIcon width={14} height={14} />}
-      />
-      <Kpi label="Average Δ" value={signedPct(s.avgDiffPct)} sub="draft vs production" />
-      <Kpi
-        label="Largest gap"
-        value={largest ? signedPct(largest.diffPct) : '—'}
-        sub={
-          largest && largestRow
-            ? `${largestRow.sizeLabel} · qty ${groupDigits(largest.quantity ?? 0)} · ${signedWon(largest.diff ?? 0)}`
-            : 'no differences'
-        }
-      />
+    <section className="card px-5 py-3">
+      <div className="grid grid-cols-2 gap-y-3 sm:grid-cols-3 lg:grid-cols-6 lg:divide-x lg:divide-slate-100">
+        <Stat label="Compared" value={s.compared.toLocaleString()} sub={`${s.rows.toLocaleString()} rows`} />
+        <Stat
+          label="Match"
+          value={s.same.toLocaleString()}
+          sub={share(s.same)}
+          icon={<CheckIcon width={12} height={12} className="text-slate-500" />}
+        />
+        <Stat
+          label="Draft higher"
+          value={s.higher.toLocaleString()}
+          sub={share(s.higher)}
+          icon={<ArrowUpIcon width={12} height={12} style={{ color: DIFF.higher }} />}
+        />
+        <Stat
+          label="Draft lower"
+          value={s.lower.toLocaleString()}
+          sub={share(s.lower)}
+          icon={<ArrowDownIcon width={12} height={12} style={{ color: DIFF.lower }} />}
+        />
+        <Stat label="Average Δ" value={signedPct(s.avgDiffPct)} sub="draft vs production" />
+        <Stat
+          label="Largest gap"
+          value={largest ? signedPct(largest.diffPct) : '—'}
+          sub={
+            largest && largestRow
+              ? `${largestRow.sizeLabel} · qty ${groupDigits(largest.quantity ?? 0)} · ${signedWon(largest.diff ?? 0)}`
+              : 'no differences'
+          }
+        />
+      </div>
+
       {s.compared > 0 && (
-        <div className="col-span-full flex h-2 overflow-hidden rounded-full bg-slate-200">
-          <div className="bg-emerald-500" style={{ width: `${share(s.same)}%` }} title={`${s.same} match`} />
-          <div className="bg-amber-400" style={{ width: `${share(s.higher)}%` }} title={`${s.higher} higher`} />
-          <div className="bg-sky-500" style={{ width: `${share(s.lower)}%` }} title={`${s.lower} lower`} />
+        <div className="mt-3 flex h-1.5 gap-[2px]">
+          {segs.map((x, i) => (
+            <span
+              key={i}
+              className={`${i === 0 ? 'rounded-l-full' : ''} ${i === segs.length - 1 ? 'rounded-r-full' : ''}`}
+              style={{ flexGrow: x.n, flexBasis: 0, background: x.color }}
+            />
+          ))}
         </div>
       )}
+
+      <Notes comparison={comparison} />
     </section>
   );
 }
 
-function Kpi({
-  label,
-  value,
-  sub,
-  tone = 'neutral',
-  icon,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: 'neutral' | 'good' | 'up' | 'down';
-  icon?: ReactNode;
-}) {
-  const accent = {
-    neutral: 'text-slate-400',
-    good: 'text-emerald-600 bg-emerald-50',
-    up: 'text-amber-600 bg-amber-50',
-    down: 'text-sky-600 bg-sky-50',
-  }[tone];
+function Stat({ label, value, sub, icon }: { label: string; value: string; sub?: string; icon?: ReactNode }) {
   return (
-    <div className="card px-4 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium text-slate-500">{label}</span>
-        {icon && <span className={`rounded-md p-1 ${accent}`}>{icon}</span>}
+    <div className="min-w-0 px-3 first:pl-0">
+      <div className="flex items-center gap-1 text-[11px] font-medium text-slate-400">
+        {icon}
+        {label}
       </div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-slate-900">{value}</div>
-      {sub && <div className="mt-0.5 truncate text-[11px] text-slate-500" title={sub}>{sub}</div>}
+      <div className="text-lg font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
+      {sub && (
+        <div className="truncate text-[11px] text-slate-400" title={sub}>
+          {sub}
+        </div>
+      )}
     </div>
   );
 }
 
-function Notices({ comparison }: { comparison: ReturnType<typeof compareDraft> }) {
+/** Small notes under the stats: refused sizes, unfetched rows, quantities only one side has. */
+function Notes({ comparison }: { comparison: ReturnType<typeof compareDraft> }) {
   const s = comparison.summary;
-  const notes: { tone: 'info' | 'warn'; text: ReactNode }[] = [];
+  const notes: { warn?: boolean; text: string; title?: string }[] = [];
 
   if (s.rowsFailed > 0) {
     const first = comparison.rows.find((r) => r.state === 'error');
-    notes.push({
-      tone: 'warn',
-      text: (
-        <>
-          Production refused {s.rowsFailed.toLocaleString()} size(s)
-          {first ? ` — e.g. ${first.sizeLabel}: “${first.error}”` : ''}.
-        </>
-      ),
-    });
+    notes.push({ warn: true, text: `${s.rowsFailed} size(s) refused by production`, title: first ? `${first.sizeLabel}: ${first.error}` : undefined });
   }
-  if (s.rowsNotFetched > 0) {
-    notes.push({
-      tone: 'info',
-      text: `${s.rowsNotFetched.toLocaleString()} row(s) were added after the last fetch and have no production price yet.`,
-    });
-  }
-  if (s.rowsWithoutSize > 0) {
-    notes.push({
-      tone: 'info',
-      text: `${s.rowsWithoutSize.toLocaleString()} row(s) have neither a size nor a whole-number base area, so production cannot be asked about them.`,
-    });
-  }
-  if (s.notInProduction > 0) {
-    notes.push({
-      tone: 'info',
-      text: `${s.notInProduction.toLocaleString()} drafted price(s) sit at a quantity production does not quote.`,
-    });
-  }
+  if (s.rowsNotFetched > 0) notes.push({ text: `${s.rowsNotFetched} row(s) not fetched yet` });
+  if (s.rowsWithoutSize > 0) notes.push({ text: `${s.rowsWithoutSize} row(s) without a usable base area` });
+  if (s.notInProduction > 0) notes.push({ text: `${s.notInProduction} price(s) at quantities production doesn't sell` });
   if (comparison.productionOnlyQuantities.length > 0) {
     notes.push({
-      tone: 'info',
-      text: (
-        <>
-          Production also quotes quantities your draft has no column for:{' '}
-          <span className="font-medium tabular-nums">
-            {comparison.productionOnlyQuantities.map((q) => groupDigits(q)).join(', ')}
-          </span>
-          .
-        </>
-      ),
+      text: `production also sells ${comparison.productionOnlyQuantities.length} quantit${comparison.productionOnlyQuantities.length === 1 ? 'y' : 'ies'} you haven't drafted`,
+      title: comparison.productionOnlyQuantities.map((q) => groupDigits(q)).join(', '),
     });
   }
-
   if (notes.length === 0) return null;
+
   return (
-    <ul className="space-y-1.5">
+    <div className="mt-2.5 flex flex-wrap gap-1.5">
       {notes.map((n, i) => (
-        <li
+        <span
           key={i}
-          className={`rounded-lg border px-3 py-2 text-xs ${
-            n.tone === 'warn' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-600'
-          }`}
+          title={n.title}
+          className={`rounded-md px-2 py-0.5 text-[11px] ${n.warn ? 'bg-amber-50 text-amber-800' : 'bg-slate-50 text-slate-500'}`}
         >
+          {n.warn ? '! ' : ''}
           {n.text}
-        </li>
+        </span>
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -465,73 +456,50 @@ function OptionCheck({ slug, variant, size }: { slug: string; variant: Variant; 
   const quantities = reference?.prices.map((p) => p.quantity) ?? [];
 
   return (
-    <section className="card px-5 py-4">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <div className="text-sm font-semibold text-slate-900">
-          {variant.kind === 'color' ? 'Colors in this price list' : 'Material'}
-          <span className="ml-2 font-normal text-slate-500">
-            {variant.name} · {variant.english}
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
+      <span className="font-medium text-slate-500">{variant.kind === 'color' ? 'Colors' : 'Material'}</span>
+      {variant.options.map((option) => {
+        const row = rows?.find((r) => r.option.id === option.id);
+        const bad = row != null && odd.includes(row);
+        return (
+          <span
+            key={option.id}
+            className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 ${bad ? 'bg-amber-50 text-amber-900' : 'bg-slate-50 text-slate-600'}`}
+            title={
+              row?.quote
+                ? `${option.name}: ${row.quote.pricingName ?? 'unknown price book'} (#${row.quote.pricingId})`
+                : (row?.error ?? 'Checking…')
+            }
+          >
+            <Swatches options={[option]} size={10} />
+            {option.name}
           </span>
-        </div>
-        <button className="btn btn-ghost ml-auto" onClick={() => setNonce((n) => n + 1)} disabled={!rows}>
-          <RefreshIcon width={14} height={14} />
-          Recheck
-        </button>
-      </div>
-
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {variant.options.map((option) => {
-          const row = rows?.find((r) => r.option.id === option.id);
-          const bad = row != null && odd.includes(row);
-          return (
-            <span
-              key={option.id}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs ring-1 ring-inset ${
-                bad ? 'bg-amber-50 text-amber-900 ring-amber-200' : 'bg-slate-50 text-slate-700 ring-slate-200'
-              }`}
-              title={
-                row?.quote
-                  ? `${row.quote.pricingName ?? 'Unknown price book'} (#${row.quote.pricingId})`
-                  : (row?.error ?? 'Checking…')
-              }
-            >
-              <Swatches options={[option]} size={12} />
-              {option.name}
-              {row?.quote && <span className="text-[10px] text-slate-400">#{row.quote.pricingId}</span>}
-              {!row && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-300" />}
-            </span>
-          );
-        })}
-      </div>
-
-      <div className="mt-2 text-xs">
-        {!rows ? (
-          <span className="text-slate-500">
-            Quoting {variant.options.length === 1 ? 'it' : `each ${variant.kind}`} at {size.width}×{size.height}…
-          </span>
-        ) : !reference ? (
-          <span className="text-red-700">Production would not quote this {variant.kind}: {rows[0]?.error}</span>
-        ) : odd.length === 0 ? (
-          <span className="text-emerald-700">
-            ✓ {variant.options.length === 1 ? 'Priced' : `All ${variant.options.length} ${variant.kind}s are priced`} from{' '}
-            <span className="font-medium">{reference.pricingName}</span> (#{reference.pricingId}), identical at{' '}
-            {size.width}×{size.height}
-            {quantities.length > 0 && (
-              <span className="text-slate-500">
-                {' '}
-                · quantities {groupDigits(quantities[0])}–{groupDigits(quantities[quantities.length - 1])}
-              </span>
-            )}
-            .
-          </span>
-        ) : (
-          <span className="text-amber-800">
-            ⚠ {odd.map((r) => r.option.name).join(', ')} {odd.length === 1 ? 'is' : 'are'} not priced like{' '}
-            {referenceOption} ({reference.pricingName}). This price list is compared using {referenceOption}'s prices.
-          </span>
-        )}
-      </div>
-    </section>
+        );
+      })}
+      {!rows ? (
+        <span className="text-slate-400">checking…</span>
+      ) : !reference ? (
+        <span className="text-red-600">production would not quote this {variant.kind}</span>
+      ) : odd.length === 0 ? (
+        <span className="text-slate-500" title={`identical prices at ${size.width}×${size.height}`}>
+          ✓ {variant.options.length === 1 ? '' : 'all '}#{reference.pricingId}
+          {quantities.length > 0 && ` · qty ${groupDigits(quantities[0])}–${groupDigits(quantities[quantities.length - 1])}`}
+        </span>
+      ) : (
+        <span className="text-amber-700" title={`${odd.map((r) => r.option.name).join(', ')} not priced like ${referenceOption}`}>
+          ⚠ {odd.length} priced differently
+        </span>
+      )}
+      <button
+        className="ml-0.5 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        onClick={() => setNonce((n) => n + 1)}
+        disabled={!rows}
+        title="Recheck"
+        aria-label="Recheck"
+      >
+        <RefreshIcon width={12} height={12} />
+      </button>
+    </div>
   );
 }
 
@@ -606,10 +574,10 @@ function SpotCheck({
   const pct = diff != null && state.kind === 'done' && state.production ? (diff / state.production) * 100 : null;
 
   return (
-    <section className="card flex flex-wrap items-end gap-x-5 gap-y-3 px-5 py-4">
-      <div className="mr-2">
-        <div className="text-sm font-semibold text-slate-900">Spot check</div>
-        <div className="text-xs text-slate-500">Any size &amp; quantity, interpolated the production way</div>
+    <section className="card flex flex-wrap items-end gap-x-5 gap-y-3 px-5 py-3">
+      <div className="mr-1">
+        <div className="text-sm font-bold text-slate-900">Spot check</div>
+        <div className="text-[11px] text-slate-400">Any size &amp; quantity, priced both ways</div>
       </div>
       <form
         className="flex flex-wrap items-end gap-2"
@@ -684,11 +652,19 @@ function Figure({
   note: string | null;
   tone?: 'neutral' | 'up' | 'down';
 }) {
-  const color = tone === 'up' ? 'text-amber-600' : tone === 'down' ? 'text-sky-600' : 'text-slate-900';
+  const icon =
+    tone === 'up' ? (
+      <ArrowUpIcon width={12} height={12} style={{ color: DIFF.higher }} />
+    ) : tone === 'down' ? (
+      <ArrowDownIcon width={12} height={12} style={{ color: DIFF.lower }} />
+    ) : null;
   return (
     <div>
-      <div className="text-[11px] font-medium text-slate-500">{label}</div>
-      <div className={`text-lg font-semibold tabular-nums ${color}`}>{value}</div>
+      <div className="flex items-center gap-1 text-[11px] font-medium text-slate-400">
+        {icon}
+        {label}
+      </div>
+      <div className="text-lg font-bold tabular-nums text-slate-900">{value}</div>
       {note && <div className="max-w-[220px] truncate text-[11px] text-slate-500" title={note}>{note}</div>}
     </div>
   );
@@ -704,15 +680,24 @@ function cellPasses(cell: CompareCell, filter: Filter): boolean {
   return cell.status === filter;
 }
 
-/** Tint by direction, deeper as the gap grows. */
-function tint(cell: CompareCell): string {
-  if (cell.status === 'same') return 'bg-emerald-50/60';
-  if (cell.status !== 'higher' && cell.status !== 'lower') return '';
-  const mag = Math.abs(cell.diffPct ?? 0);
-  if (cell.status === 'higher') return mag >= 10 ? 'bg-amber-200/70' : mag >= 3 ? 'bg-amber-100' : 'bg-amber-50';
-  return mag >= 10 ? 'bg-sky-200/70' : mag >= 3 ? 'bg-sky-100' : 'bg-sky-50';
+const CELL_W = 68;
+const CELL_H = 26;
+const HEAD_W = 112;
+
+/** A cell's fill: neutral for a match, blue/red deepening with the size of the gap. */
+function heatFill(cell: CompareCell): string | undefined {
+  if (cell.status === 'same') return HEAT.match;
+  if (cell.status === 'higher') return HEAT.higher[heatStep(cell.diffPct)];
+  if (cell.status === 'lower') return HEAT.lower[heatStep(cell.diffPct)];
+  return undefined;
 }
 
+/**
+ * The comparison as a heatmap: one row per drafted size, one column per
+ * quantity. Matches stay quiet (gray, ✓); every difference is colored by
+ * direction and deepens with its size, so where draft and production part
+ * ways is visible at a glance. Each column and row carries its match rate.
+ */
 function Matrix({
   comparison,
   filter,
@@ -730,50 +715,107 @@ function Matrix({
   );
   const shown = rows.slice(0, MAX_MATRIX_ROWS);
 
+  /** Match rate per quantity column, over cells that were compared. */
+  const columnRates = useMemo(
+    () =>
+      comparison.quantities.map((_, i) => {
+        let compared = 0;
+        let same = 0;
+        for (const r of comparison.rows) {
+          const c = r.cells[i];
+          if (c && (c.status === 'same' || c.status === 'higher' || c.status === 'lower')) {
+            compared += 1;
+            if (c.status === 'same') same += 1;
+          }
+        }
+        return compared ? same / compared : null;
+      }),
+    [comparison],
+  );
+
   if (shown.length === 0) return <div className="px-4 py-12 text-center text-sm text-slate-500">No prices match this filter.</div>;
 
   return (
     <>
-      <table className="w-max min-w-full border-separate border-spacing-0 text-xs">
+      <table className="border-separate border-spacing-0 text-[11px]" style={{ fontFamily: 'Arial, Roboto, sans-serif' }}>
         <thead>
           <tr>
-            <th className="sticky left-0 top-0 z-30 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left font-semibold text-slate-600">
-              Size
+            <th
+              className="sticky left-0 top-0 z-30 border-b border-r border-slate-200 bg-white px-2 text-left font-semibold text-slate-500"
+              style={{ minWidth: HEAD_W, height: CELL_H }}
+            >
+              Base area / qty
             </th>
             {comparison.quantities.map((q, i) => (
               <th
                 key={i}
-                className="sticky top-0 z-20 min-w-[112px] border-b border-slate-200 bg-slate-50 px-3 py-2 text-right font-semibold tabular-nums text-slate-600"
+                className="sticky top-0 z-20 border-b border-slate-200 bg-white px-1.5 text-right font-semibold tabular-nums text-slate-600"
+                style={{ minWidth: CELL_W, height: CELL_H }}
               >
                 {q != null ? groupDigits(q) : '?'}
               </th>
             ))}
+            <th className="sticky top-0 z-20 border-b border-slate-200 bg-white px-2 text-right font-semibold text-slate-500" style={{ minWidth: 56 }}>
+              Match
+            </th>
+          </tr>
+          <tr>
+            <th
+              className="sticky left-0 z-30 border-b border-r border-slate-200 bg-slate-50 px-2 text-left font-medium text-slate-400"
+              style={{ top: CELL_H, height: 20 }}
+            >
+              match per qty
+            </th>
+            {columnRates.map((rate, i) => (
+              <th
+                key={i}
+                className="sticky z-20 border-b border-slate-200 bg-slate-50 px-1.5 text-right font-medium tabular-nums text-slate-500"
+                style={{ top: CELL_H, height: 20 }}
+              >
+                {rate == null ? '—' : `${Math.round(rate * 100)}%`}
+              </th>
+            ))}
+            <th className="sticky z-20 border-b border-slate-200 bg-slate-50" style={{ top: CELL_H }} />
           </tr>
         </thead>
         <tbody>
-          {shown.map((row) => (
-            <tr key={row.rowIndex}>
-              <RowHeader row={row} />
-              {row.cells.map((cell) => (
-                <td
-                  key={cell.colIndex}
-                  className={`border-b border-slate-100 px-3 py-1.5 text-right align-top ${
-                    cellPasses(cell, filter) ? tint(cell) : 'opacity-25'
-                  } ${cell.status !== 'blank' ? 'cursor-pointer hover:ring-1 hover:ring-inset hover:ring-brand-300' : ''}`}
-                  onClick={() => cell.status !== 'blank' && onGoToCell(cell.rowIndex, FIRST_PRICE_COL + cell.colIndex)}
-                  title={cellTitle(row, cell)}
-                >
-                  <MatrixCell cell={cell} measure={measure} rowState={row.state} />
+          {shown.map((row) => {
+            const compared = row.cells.filter((c) => c.status === 'same' || c.status === 'higher' || c.status === 'lower');
+            const same = compared.filter((c) => c.status === 'same').length;
+            return (
+              <tr key={row.rowIndex}>
+                <RowHeader row={row} />
+                {row.cells.map((cell) => {
+                  const active = cellPasses(cell, filter);
+                  return (
+                    <td
+                      key={cell.colIndex}
+                      className={`border-b border-r border-white px-1.5 text-right tabular-nums ${
+                        cell.status !== 'blank' ? 'cursor-pointer hover:outline hover:outline-2 hover:-outline-offset-2 hover:outline-slate-700' : ''
+                      }`}
+                      style={{
+                        height: CELL_H,
+                        background: active ? heatFill(cell) : undefined,
+                        opacity: active ? 1 : 0.2,
+                      }}
+                      onClick={() => cell.status !== 'blank' && onGoToCell(cell.rowIndex, FIRST_PRICE_COL + cell.colIndex)}
+                      title={cellTitle(row, cell)}
+                    >
+                      <HeatCell cell={cell} measure={measure} rowState={row.state} />
+                    </td>
+                  );
+                })}
+                <td className="border-b border-slate-100 px-2 text-right font-semibold tabular-nums text-slate-600">
+                  {compared.length ? `${Math.round((same / compared.length) * 100)}%` : '—'}
                 </td>
-              ))}
-            </tr>
-          ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       {rows.length > shown.length && (
         <div className="px-4 py-3 text-xs text-slate-500">
-          Showing the first {MAX_MATRIX_ROWS.toLocaleString()} of {rows.length.toLocaleString()} rows — export for the
-          full comparison.
+          Showing the first {MAX_MATRIX_ROWS.toLocaleString()} of {rows.length.toLocaleString()} rows — export for the full comparison.
         </div>
       )}
     </>
@@ -783,82 +825,57 @@ function Matrix({
 function RowHeader({ row }: { row: CompareRow }) {
   const state = {
     ok: null,
-    error: <span className="text-[10px] font-medium text-red-600" title={row.error ?? ''}>refused</span>,
-    'not-fetched': <span className="text-[10px] text-slate-400">not fetched</span>,
-    'no-size': <span className="text-[10px] text-slate-400">no size</span>,
+    error: (
+      <span className="text-red-600" title={row.error ?? ''}>
+        refused
+      </span>
+    ),
+    'not-fetched': <span>not fetched</span>,
+    'no-size': <span>no area</span>,
   }[row.state];
   return (
-    <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-3 py-1.5 text-left align-top font-normal">
-      <div className="font-semibold tabular-nums text-slate-800">
-        {row.sizeLabel}
-        {row.sizeFromArea && (
-          <span
-            className="ml-1 rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-500"
-            title="This row has no size, so production was asked for this size, which has the same area. Production prices by area alone."
-          >
-            from area
-          </span>
-        )}
-      </div>
-      <div className="flex items-center gap-1.5 text-[10px] tabular-nums text-slate-400">
-        {row.baseArea != null && <span>{groupDigits(row.baseArea)} mm²</span>}
-        {state}
+    <th
+      className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-2 text-left font-normal"
+      style={{ minWidth: HEAD_W, height: CELL_H }}
+    >
+      <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+        <span className="font-semibold tabular-nums text-slate-800">{row.baseArea != null ? groupDigits(row.baseArea) : '—'}</span>
+        <span className="text-[10px] text-slate-400">{state ?? row.sizeLabel}</span>
       </div>
     </th>
   );
 }
 
 const MISSING_LABEL: Record<CompareRow['state'], string> = {
-  ok: 'no prod. qty',
-  error: 'refused',
-  'not-fetched': 'not fetched',
+  ok: 'n/a',
+  error: '!',
+  'not-fetched': '·',
   'no-size': '',
 };
 
-function MatrixCell({ cell, measure, rowState }: { cell: CompareCell; measure: Measure; rowState: CompareRow['state'] }) {
-  if (cell.status === 'blank') return <span className="text-slate-300">—</span>;
+function HeatCell({ cell, measure, rowState }: { cell: CompareCell; measure: Measure; rowState: CompareRow['state'] }) {
+  if (cell.status === 'blank') return <span className="text-slate-200">·</span>;
+  if (cell.production == null) return <span className="text-slate-300">{MISSING_LABEL[rowState]}</span>;
+  if (measure === 'draft') return <span className="text-slate-800">{groupDigits(cell.draft ?? 0)}</span>;
+  if (measure === 'prod') return <span className="text-slate-800">{groupDigits(cell.production)}</span>;
+  if (cell.status === 'same') return <CheckIcon width={11} height={11} className="ml-auto text-slate-400" />;
   return (
-    <div className="leading-tight">
-      <div
-        className={`font-semibold tabular-nums text-slate-900 ${
-          cell.draft !== cell.draftRaw ? 'underline decoration-slate-300 decoration-dotted underline-offset-2' : ''
-        }`}
-      >
-        {groupDigits(cell.draft ?? 0)}
-      </div>
-      {cell.production != null ? (
-        <div className="mt-0.5 flex items-center justify-end gap-1 tabular-nums">
-          <span className="text-[10px] text-slate-400">{groupDigits(cell.production)}</span>
-          <DeltaBadge cell={cell} measure={measure} />
-        </div>
-      ) : (
-        <div className="mt-0.5 h-[15px] text-[10px] text-slate-400">{MISSING_LABEL[rowState]}</div>
-      )}
-    </div>
-  );
-}
-
-function DeltaBadge({ cell, measure }: { cell: CompareCell; measure: Measure }) {
-  if (cell.status === 'same') return <CheckIcon width={11} height={11} className="text-emerald-600" />;
-  if (cell.diff == null) return null;
-  const color = cell.status === 'higher' ? 'text-amber-700' : 'text-sky-700';
-  return (
-    <span className={`text-[10px] font-semibold ${color}`}>
-      {measure === 'pct' ? signedPct(cell.diffPct) : signedWon(cell.diff)}
+    <span className="font-semibold text-slate-900">
+      {measure === 'pct' ? signedPct(cell.diffPct) : signedWon(cell.diff ?? 0)}
     </span>
   );
 }
 
 function cellTitle(row: CompareRow, cell: CompareCell): string {
   if (cell.status === 'blank') return '';
-  const parts = [`${row.sizeLabel} × ${groupDigits(cell.quantity ?? 0)}`];
+  const parts = [`${row.baseArea != null ? `${groupDigits(row.baseArea)} mm²` : row.sizeLabel} (${row.sizeLabel}) × qty ${groupDigits(cell.quantity ?? 0)}`];
   if (cell.draftRaw != null && cell.draft !== cell.draftRaw) {
     parts.push(`Draft ${won(cell.draftRaw)} → rounded ${won(cell.draft ?? 0)}`);
   } else {
     parts.push(`Draft ${won(cell.draft ?? 0)}`);
   }
   if (cell.production != null) parts.push(`Production ${won(cell.production)}`);
-  if (cell.diff != null) parts.push(`Δ ${signedWon(cell.diff)} (${signedPct(cell.diffPct, 2)})`);
+  if (cell.diff != null) parts.push(cell.diff === 0 ? 'Match ✓' : `Δ ${signedWon(cell.diff)} (${signedPct(cell.diffPct, 2)})`);
   if (row.state === 'error') parts.push(`Production: ${row.error}`);
   parts.push('Click to edit in the price table');
   return parts.join('\n');
@@ -902,7 +919,7 @@ function DiffList({
             {['Size', 'Quantity', 'Draft', 'Production', 'Δ ₩', 'Δ %'].map((h, i) => (
               <th
                 key={h}
-                className={`sticky top-0 border-b border-slate-200 bg-slate-50 px-4 py-2 font-semibold ${i === 0 ? 'text-left' : 'text-right'}`}
+                className={`sticky top-0 border-b border-slate-200 bg-white px-4 py-2 font-semibold ${i === 0 ? 'text-left' : 'text-right'}`}
               >
                 {h}
               </th>
@@ -911,7 +928,14 @@ function DiffList({
         </thead>
         <tbody>
           {items.slice(0, MAX_LIST_ROWS).map(({ row, cell }) => {
-            const color = cell.status === 'higher' ? 'text-amber-700' : 'text-sky-700';
+            // Text stays in text tokens; the arrow carries direction.
+            const color = 'text-slate-900';
+            const arrow =
+              cell.status === 'higher' ? (
+                <ArrowUpIcon width={11} height={11} className="mr-0.5 inline" style={{ color: DIFF.higher }} />
+              ) : (
+                <ArrowDownIcon width={11} height={11} className="mr-0.5 inline" style={{ color: DIFF.lower }} />
+              );
             return (
               <tr
                 key={`${row.rowIndex}-${cell.colIndex}`}
@@ -931,6 +955,7 @@ function DiffList({
                 </td>
                 <td className="border-b border-slate-100 px-4 py-2 text-right tabular-nums text-slate-500">{won(cell.production ?? 0)}</td>
                 <td className={`border-b border-slate-100 px-4 py-2 text-right font-semibold tabular-nums ${color}`}>
+                  {arrow}
                   {signedWon(cell.diff ?? 0)}
                 </td>
                 <td className={`border-b border-slate-100 px-4 py-2 text-right font-semibold tabular-nums ${color}`}>
@@ -974,26 +999,18 @@ function RoundingControl({
 }) {
   const matchable = productionUnit != null && (PRICE_UNITS as readonly number[]).includes(productionUnit);
   return (
-    <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
-      <span className="text-xs font-medium text-slate-700">Round my prices to</span>
-      <Seg
-        value={String(rounding)}
-        onChange={(v) => onRounding(Number(v) as PriceUnit)}
-        options={ROUNDING_OPTIONS}
-      />
+    <div
+      className="flex flex-wrap items-center gap-2 text-xs"
+      title="Drafted prices are rounded half-up before comparing — the draft itself is not changed. Rounded values show the original on hover."
+    >
+      <span className="font-medium text-slate-500">Round my prices</span>
+      <Seg value={String(rounding)} onChange={(v) => onRounding(Number(v) as PriceUnit)} options={ROUNDING_OPTIONS} />
       {matchable && rounding !== productionUnit && (
-        <button
-          className="text-xs font-medium text-brand-600 hover:text-brand-700"
-          onClick={() => onRounding(productionUnit as PriceUnit)}
-        >
-          Match production (₩{groupDigits(productionUnit)})
+        <button className="font-medium text-brand-600 hover:text-brand-700" onClick={() => onRounding(productionUnit as PriceUnit)}>
+          match production (₩{groupDigits(productionUnit)})
         </button>
       )}
-      <span className="text-xs text-slate-500">
-        {rounding === 1
-          ? 'Compared exactly as drafted.'
-          : `${rounded.toLocaleString()} drafted price(s) rounded half-up to the nearest ₩${groupDigits(rounding)} before comparing — dotted values; hover for the original. Your draft is not changed.`}
-      </span>
+      {rounding > 1 && <span className="text-slate-400">{rounded.toLocaleString()} rounded</span>}
     </div>
   );
 }
@@ -1018,19 +1035,27 @@ function Seg<T extends string>({
   );
 }
 
-function Legend() {
+/** Lower (blue) ← match (gray, ✓) → higher (red), each arm stepped by gap size. */
+function HeatLegend() {
+  const ramp = (colors: readonly string[]) =>
+    colors.map((c, i) => <span key={i} className="h-3 w-3" style={{ background: c }} title={HEAT_LEGEND[i]} />);
   return (
-    <div className="ml-auto hidden items-center gap-3 text-[11px] text-slate-500 lg:flex">
+    <div className="ml-auto hidden items-center gap-2 text-[11px] text-slate-500 lg:flex">
       <span className="flex items-center gap-1">
-        <span className="h-2.5 w-2.5 rounded-sm bg-emerald-200" /> match
+        <ArrowDownIcon width={11} height={11} style={{ color: DIFF.lower }} /> lower
+      </span>
+      <span className="flex gap-px" title="≥ 5%  ·  < 5%  ·  < 2%  ·  < 0.5%">
+        {ramp([...HEAT.lower].reverse())}
+      </span>
+      <span className="flex h-3 items-center gap-0.5 px-1" style={{ background: HEAT.match }}>
+        <CheckIcon width={10} height={10} className="text-slate-500" />
+      </span>
+      <span className="flex gap-px" title="< 0.5%  ·  < 2%  ·  < 5%  ·  ≥ 5%">
+        {ramp(HEAT.higher)}
       </span>
       <span className="flex items-center gap-1">
-        <span className="h-2.5 w-2.5 rounded-sm bg-amber-200" /> draft higher
+        higher <ArrowUpIcon width={11} height={11} style={{ color: DIFF.higher }} />
       </span>
-      <span className="flex items-center gap-1">
-        <span className="h-2.5 w-2.5 rounded-sm bg-sky-200" /> draft lower
-      </span>
-      <span className="text-slate-400">small number = production</span>
     </div>
   );
 }

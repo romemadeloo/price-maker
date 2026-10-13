@@ -191,30 +191,30 @@ export default function ProductWorkspace({
   return (
     <div className="flex h-full min-w-0 flex-col">
       {/* ------------------------------------------------ header */}
-      <header className="border-b border-slate-200 bg-white">
-        <div className="flex flex-wrap items-start gap-4 px-4 pb-3 pt-4 sm:px-6">
+      <header>
+        <div className="flex flex-wrap items-center gap-4 px-4 pb-3 pt-6 sm:px-7">
           <button className="btn btn-default mt-1 px-2 lg:hidden" onClick={onOpenNav} aria-label="Open products">
             <MenuIcon />
           </button>
-          <ProductThumb product={product} size={56} />
+          <ProductThumb product={product} size={52} />
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
               <span>{category?.english}</span>
               <span className="text-slate-300">/</span>
               <span className="font-mono text-[11px]">{priceList.key}</span>
             </div>
-            <h1 className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold tracking-tight text-slate-900">
+            <h1 className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-2xl font-bold tracking-tight text-slate-900">
               {product.name}
               <span className="text-sm font-normal text-slate-400">{product.english}</span>
               {variant && (
-                <span className="inline-flex items-center gap-1.5 self-center rounded-lg bg-brand-50 px-2 py-0.5 text-sm font-medium text-brand-800 ring-1 ring-inset ring-brand-100">
+                <span className="inline-flex items-center gap-1.5 self-center rounded-lg bg-white px-2.5 py-1 text-sm font-medium text-slate-800 shadow-card">
                   <Swatches options={variant.options} />
                   {variant.name}
                   <span className="font-normal text-brand-600">{variant.english}</span>
                 </span>
               )}
             </h1>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
               <span>
                 {updatedAt
                   ? `Saved ${timeAgo(updatedAt)}${updatedBy ? ` by ${updatedBy}` : ''}`
@@ -263,21 +263,21 @@ export default function ProductWorkspace({
         </div>
 
         {/* ------------------------------------------------ tabs */}
-        <nav className="flex gap-1 overflow-x-auto px-3 sm:px-5">
+        <nav className="flex gap-1.5 overflow-x-auto px-4 pb-1 sm:px-7">
           {TABS.map((t) => {
             const problems = result.summary.mismatched + result.summary.invalidInput;
             const badge =
               t.id === 'validation' && problems > 0 ? (
-                <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                   {problems.toLocaleString()}
                 </span>
               ) : t.id === 'compare' && changedCount != null ? (
                 <span
                   className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                    changedCount > 0 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'
+                    changedCount > 0 ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-700'
                   }`}
                 >
-                  {changedCount > 0 ? `Δ ${changedCount.toLocaleString()}` : '='}
+                  {changedCount > 0 ? `Δ ${changedCount.toLocaleString()}` : '✓'}
                 </span>
               ) : null;
             const active = tab === t.id;
@@ -285,14 +285,13 @@ export default function ProductWorkspace({
               <button
                 key={t.id}
                 onClick={() => onTabChange(t.id)}
-                className={`relative flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-2.5 text-sm font-medium transition-colors ${
-                  active ? 'text-brand-700' : 'text-slate-500 hover:text-slate-800'
+                className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-medium transition-colors ${
+                  active ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:bg-white hover:text-slate-800'
                 }`}
               >
                 <span className={active ? 'text-brand-600' : 'text-slate-400'}>{t.icon}</span>
                 {t.label}
                 {badge}
-                {active && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand-600" />}
               </button>
             );
           })}
@@ -353,12 +352,17 @@ export default function ProductWorkspace({
       />
 
       {showSummary && (
-        <div className="px-4 pt-4 sm:px-6">
-          <SummaryCards summary={result.summary} roundTrip={result.roundTrip} stale={pending} />
+        <div className="px-4 pt-4 sm:px-7">
+          <SummaryCards
+            summary={result.summary}
+            roundTrip={result.roundTrip}
+            stale={pending}
+            duplicates={result.parsed.rows.filter((r) => !r.isEmpty && r.duplicateAreaFactor).length}
+          />
         </div>
       )}
 
-      <main className="min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-6">
+      <main className="min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-7">
         {tab === 'table' && (
           <SpreadsheetGrid
             sheet={sheet}
@@ -418,7 +422,7 @@ function SyncBanner({
   const box = tone === 'red' ? 'border-red-200 bg-red-50' : 'border-brand-200 bg-brand-50';
   const text = tone === 'red' ? 'text-red-900' : 'text-brand-900';
   return (
-    <div className={`mx-4 mt-4 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 sm:mx-6 ${box}`}>
+    <div className={`mx-4 mt-4 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 sm:mx-7 ${box}`}>
       <div className="min-w-0 flex-1">
         <div className={`text-sm font-semibold ${text}`}>{title}</div>
         <div className="text-xs text-slate-600">{body}</div>

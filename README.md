@@ -235,8 +235,20 @@ if production ever splits a group, it says which colors no longer match. The
 groups are defined in `src/lib/products.ts` (`variants`); the solid group keeps
 the bare `vinyl-lettering` key, the others are `vinyl-lettering~<group>`.
 
-**Overview** lists every product with its draft size, the production price book
-it was compared against, and the match / higher / lower mix at a glance.
+**Overview** is a dashboard over every price list: how many are drafted and
+compared, the overall match rate and average difference, a diverging bar per
+compared list (draft lower · match · draft higher, worst first), the lists
+needing attention, a donut of all compared prices, and a card per drafted list
+with its rows, base-area and quantity ranges, editor, production price book,
+match rate and largest gap. Pills filter it by category.
+
+**Compare to Production** keeps everything on one compact bar (source, rounding,
+colors/material check, actions), a stats strip, and a **heatmap**: one row per
+drafted size, one column per quantity, with each row's and column's match rate.
+Matches stay a quiet gray ✓; differences are blue (draft lower) or red (draft
+higher), deeper as the gap grows — a CVD-safe diverging pair, so where the draft
+and production part ways shows at a glance. Hover any cell for the numbers; click
+it to edit that price.
 
 **Tabs**
 

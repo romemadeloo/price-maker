@@ -25,6 +25,10 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * The product list, in the light "Directories / Reports" style: section
+ * headings in muted text, the active item lifted onto a white card.
+ */
 export default function Sidebar({
   view,
   activeSlug,
@@ -62,51 +66,43 @@ export default function Sidebar({
 
   return (
     <>
-      {open && <div className="fixed inset-0 z-30 bg-slate-900/50 lg:hidden" onClick={onClose} />}
+      {open && <div className="fixed inset-0 z-30 bg-slate-900/30 lg:hidden" onClick={onClose} />}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 shrink-0 flex-col bg-slate-950 text-slate-300 transition-transform lg:static lg:translate-x-0 ${
-          open ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed inset-y-0 left-0 z-40 flex w-[272px] shrink-0 flex-col bg-[#f5f6fa] transition-transform lg:static lg:translate-x-0 ${
+          open ? 'translate-x-0 shadow-xl' : '-translate-x-full'
         }`}
       >
-        {/* ---------------------------------------------------- brand */}
-        <div className="flex items-center gap-3 px-5 pb-4 pt-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-700 text-sm font-bold text-white shadow-lg shadow-brand-900/40">
-            ₩
-          </div>
+        {/* ---------------------------------------------------- title */}
+        <div className="flex items-start gap-2 px-5 pb-3 pt-6">
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold tracking-tight text-white">Pricer Studio</div>
-            <div className="text-[11px] text-slate-500">Draft vs production · musticker</div>
+            <div className="text-xl font-bold tracking-tight text-slate-900">Pricer Studio</div>
+            <div className="mt-0.5 text-xs text-slate-400">
+              {draftedCount} of {PRICE_LISTS.length} price lists drafted
+            </div>
           </div>
-          <button className="rounded-md p-1 text-slate-500 hover:bg-slate-800 hover:text-white lg:hidden" onClick={onClose}>
+          <button className="rounded-md p-1 text-slate-400 hover:bg-white lg:hidden" onClick={onClose} aria-label="Close">
             <CloseIcon />
           </button>
         </div>
 
-        <div className="px-3">
-          <button
-            onClick={onOverview}
-            className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              view === 'overview' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-white'
-            }`}
-          >
-            <GridIcon />
-            Overview
-            <span className="ml-auto rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-400">
-              {draftedCount}/{PRICE_LISTS.length}
-            </span>
-          </button>
+        {/* Overview lives in the icon rail on wide screens; the drawer needs its own. */}
+        <div className="px-3 lg:hidden">
+          <NavItem active={view === 'overview'} onClick={onOverview}>
+            <GridIcon className="text-slate-500" />
+            <span className="flex-1">Overview</span>
+          </NavItem>
         </div>
 
         {/* ---------------------------------------------------- search */}
-        <div className="px-3 pb-2 pt-4">
-          <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5 text-slate-500 focus-within:border-brand-500">
-            <SearchIcon />
+        <div className="px-4 pb-1 pt-2">
+          <label className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-slate-400 shadow-sm ring-1 ring-slate-200/70 focus-within:ring-brand-300">
+            <SearchIcon width={15} height={15} />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search products"
-              className="w-full bg-transparent text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none"
+              placeholder="Search products, colors, materials"
+              className="w-full bg-transparent text-[13px] text-slate-800 placeholder:text-slate-400 focus:outline-none"
             />
           </label>
         </div>
@@ -118,21 +114,21 @@ export default function Sidebar({
             if (items.length === 0) return null;
             const isCollapsed = collapsed[cat.id] && !query;
             return (
-              <div key={cat.id} className="mt-3">
+              <div key={cat.id} className="mt-4">
                 <button
                   onClick={() => setCollapsed((c) => ({ ...c, [cat.id]: !c[cat.id] }))}
-                  className="flex w-full items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300"
+                  className="flex w-full items-center gap-1.5 px-2 pb-1.5 text-xs font-medium text-slate-400 hover:text-slate-600"
                 >
+                  {cat.english}
+                  <span className="text-slate-300">{cat.name}</span>
                   <ChevronIcon
                     width={12}
                     height={12}
-                    className={`transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
+                    className={`ml-auto transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
                   />
-                  {cat.english}
-                  <span className="font-normal normal-case tracking-normal text-slate-600">{cat.name}</span>
                 </button>
                 {!isCollapsed && (
-                  <ul className="mt-0.5 space-y-0.5">
+                  <ul className="space-y-0.5">
                     {items.map(({ product, lists }) =>
                       product.variants ? (
                         <VariantGroup
@@ -144,13 +140,16 @@ export default function Sidebar({
                           onSelect={onSelectProduct}
                         />
                       ) : (
-                        <ProductItem
-                          key={product.slug}
-                          product={product}
-                          status={statuses[product.slug]}
-                          active={view === 'product' && product.slug === activeSlug}
-                          onClick={() => onSelectProduct(product.slug)}
-                        />
+                        <li key={product.slug}>
+                          <NavItem
+                            active={view === 'product' && product.slug === activeSlug}
+                            onClick={() => onSelectProduct(product.slug)}
+                          >
+                            <ProductThumb product={product} size={28} />
+                            <ItemLabel name={product.name} sub={product.english} />
+                            <StatusBadge status={statuses[product.slug]} />
+                          </NavItem>
+                        </li>
                       ),
                     )}
                   </ul>
@@ -158,92 +157,67 @@ export default function Sidebar({
               </div>
             );
           })}
-          {filtered.length === 0 && <div className="px-2 py-6 text-center text-xs text-slate-600">No products match.</div>}
+          {filtered.length === 0 && <div className="px-2 py-8 text-center text-xs text-slate-400">No products match.</div>}
         </nav>
 
         {/* ---------------------------------------------------- settings */}
-        <div className="border-t border-slate-800 px-5 py-4">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Rate precision</div>
-          <div className="mt-2 flex items-center gap-3">
-            <DpInput
-              label="Min dp"
-              title="Decimal places the search starts at"
-              value={options.minDecimalPlaces}
-              min={0}
-              max={options.maxDecimalPlaces}
-              onChange={(v) => setOptions({ ...options, minDecimalPlaces: Math.max(0, v) })}
-            />
-            <DpInput
-              label="Max dp"
-              title="Upper bound for the precision search"
-              value={options.maxDecimalPlaces}
-              min={options.minDecimalPlaces}
-              max={30}
-              onChange={(v) => setOptions({ ...options, maxDecimalPlaces: Math.min(30, v) })}
-            />
+        <div className="px-3 pb-4">
+          <div className="card space-y-2.5 px-4 py-3.5">
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="w-16 shrink-0">Your name</span>
+              <input
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                placeholder="shown as “saved by”"
+                maxLength={60}
+                className="min-w-0 flex-1 rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-800 ring-1 ring-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-brand-300"
+              />
+            </label>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="w-16 shrink-0" title="Decimal places for the exported price-per-mm² rates">Rate dp</span>
+              <DpInput
+                label="min"
+                title="Decimal places the precision search starts at"
+                value={options.minDecimalPlaces}
+                min={0}
+                max={options.maxDecimalPlaces}
+                onChange={(v) => setOptions({ ...options, minDecimalPlaces: Math.max(0, v) })}
+              />
+              <DpInput
+                label="max"
+                title="Upper bound for the precision search"
+                value={options.maxDecimalPlaces}
+                min={options.minDecimalPlaces}
+                max={30}
+                onChange={(v) => setOptions({ ...options, maxDecimalPlaces: Math.min(30, v) })}
+              />
+            </div>
+            <SyncStatusLine sync={sync} browserSaved={saved} />
           </div>
-          <label className="mt-3 flex items-center gap-2 rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11px] text-slate-400">
-            Your name
-            <input
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              placeholder="shown as “edited by”"
-              maxLength={60}
-              className="min-w-0 flex-1 bg-transparent text-right text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none"
-            />
-          </label>
-          <SyncStatusLine sync={sync} browserSaved={saved} />
         </div>
       </aside>
     </>
   );
 }
 
-const SYNC_LABEL: Record<CloudSync['status'], { dot: string; text: string }> = {
-  connecting: { dot: 'bg-slate-500 animate-pulse', text: 'Connecting to shared drafts…' },
-  synced: { dot: 'bg-emerald-400', text: 'Shared — everyone sees these drafts' },
-  saving: { dot: 'bg-brand-400 animate-pulse', text: 'Saving to shared drafts…' },
-  offline: { dot: 'bg-amber-400', text: 'Offline — saved here, will share when back' },
-  'not-configured': { dot: 'bg-amber-400', text: 'Shared storage not set up — this browser only' },
-  locked: { dot: 'bg-red-400', text: 'Passcode needed for shared drafts' },
-  error: { dot: 'bg-red-400', text: 'Shared drafts unavailable — saved here' },
-};
-
-function SyncStatusLine({ sync, browserSaved }: { sync: CloudSync; browserSaved: boolean }) {
-  const [passcode, setPasscode] = useState('');
-  const label = SYNC_LABEL[sync.status];
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (passcode.trim()) sync.unlock(passcode);
-    setPasscode('');
-  };
-
+function NavItem({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <div className="mt-3 space-y-1.5">
-      <button
-        onClick={sync.syncNow}
-        title={[sync.message, sync.lastSyncedAt ? `Last synced ${timeAgo(sync.lastSyncedAt)}` : null, 'Click to sync now']
-          .filter(Boolean)
-          .join('\n')}
-        className="flex w-full items-center gap-1.5 text-left text-[11px] text-slate-500 hover:text-slate-300"
-      >
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${label.dot}`} />
-        {label.text}
-      </button>
-      {sync.status === 'locked' && (
-        <form onSubmit={submit} className="flex gap-1.5">
-          <input
-            type="password"
-            value={passcode}
-            onChange={(e) => setPasscode(e.target.value)}
-            placeholder="Team passcode"
-            className="min-w-0 flex-1 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
-          />
-          <button className="rounded-lg bg-brand-600 px-2.5 text-xs font-medium text-white hover:bg-brand-500">Unlock</button>
-        </form>
-      )}
-      {!browserSaved && <div className="text-[11px] text-amber-400">This browser is not keeping a local copy.</div>}
+    <button
+      onClick={onClick}
+      className={`group flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition ${
+        active ? 'bg-white text-slate-900 shadow-card' : 'text-slate-600 hover:bg-white/70'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ItemLabel({ name, sub }: { name: string; sub: string }) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="truncate text-[13px] font-medium">{name}</div>
+      <div className="truncate text-[11px] text-slate-400">{sub}</div>
     </div>
   );
 }
@@ -264,104 +238,95 @@ function VariantGroup({
 }) {
   return (
     <li>
-      <div className="flex items-center gap-2.5 px-2.5 pb-0.5 pt-1.5">
-        <ProductThumb product={product} size={30} />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] text-slate-300">{product.name}</div>
-          <div className="truncate text-[11px] text-slate-500">
-            {product.english} · priced by {product.variants?.[0].kind ?? 'option'}
-          </div>
-        </div>
+      <div className="flex items-center gap-2.5 px-2.5 pb-1 pt-2 text-slate-600">
+        <ProductThumb product={product} size={28} />
+        <ItemLabel name={product.name} sub={`${product.english} · priced by ${product.variants?.[0].kind ?? 'option'}`} />
       </div>
-      <ul className="ml-6 space-y-0.5 border-l border-slate-800 pl-2">
-        {lists.map((list) => {
-          const active = list.key === activeKey;
-          return (
-            <li key={list.key}>
-              <button
-                onClick={() => onSelect(list.key)}
-                className={`group flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors ${
-                  active ? 'bg-brand-600/15 text-white ring-1 ring-inset ring-brand-500/40' : 'hover:bg-slate-900'
-                }`}
-              >
-                {list.variant && <Swatches options={list.variant.options} size={10} max={4} />}
-                <div className="min-w-0 flex-1">
-                  <div
-                    className={`truncate text-[12px] ${active ? 'font-medium text-white' : 'text-slate-300 group-hover:text-white'}`}
-                  >
-                    {list.variant?.name}
-                  </div>
-                  <div className="truncate text-[10px] text-slate-500">{list.variant?.english}</div>
-                </div>
-                <StatusBadge status={statuses[list.key]} />
-              </button>
-            </li>
-          );
-        })}
+      <ul className="ml-[22px] space-y-0.5 border-l border-slate-200 pl-2">
+        {lists.map((list) => (
+          <li key={list.key}>
+            <NavItem active={list.key === activeKey} onClick={() => onSelect(list.key)}>
+              {list.variant && <Swatches options={list.variant.options} size={10} max={4} />}
+              <ItemLabel name={list.variant?.name ?? ''} sub={list.variant?.english ?? ''} />
+              <StatusBadge status={statuses[list.key]} />
+            </NavItem>
+          </li>
+        ))}
       </ul>
     </li>
   );
 }
 
-function ProductItem({
-  product,
-  status,
-  active,
-  onClick,
-}: {
-  product: Product;
-  status: ProductStatus | undefined;
-  active: boolean;
-  onClick: () => void;
-}) {
+const SYNC_LABEL: Record<CloudSync['status'], { dot: string; text: string }> = {
+  connecting: { dot: 'bg-slate-300 animate-pulse', text: 'Connecting to shared drafts…' },
+  synced: { dot: 'bg-emerald-500', text: 'Shared — everyone sees these drafts' },
+  saving: { dot: 'bg-brand-500 animate-pulse', text: 'Saving to shared drafts…' },
+  offline: { dot: 'bg-amber-400', text: 'Offline — saved here, will share when back' },
+  'not-configured': { dot: 'bg-amber-400', text: 'Shared storage not set up — this browser only' },
+  locked: { dot: 'bg-red-500', text: 'Passcode needed for shared drafts' },
+  error: { dot: 'bg-red-500', text: 'Shared drafts unavailable — saved here' },
+};
+
+function SyncStatusLine({ sync, browserSaved }: { sync: CloudSync; browserSaved: boolean }) {
+  const [passcode, setPasscode] = useState('');
+  const label = SYNC_LABEL[sync.status];
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (passcode.trim()) sync.unlock(passcode);
+    setPasscode('');
+  };
+
   return (
-    <li>
+    <div className="space-y-1.5 border-t border-slate-100 pt-2.5">
       <button
-        onClick={onClick}
-        className={`group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
-          active ? 'bg-brand-600/15 text-white ring-1 ring-inset ring-brand-500/40' : 'hover:bg-slate-900'
-        }`}
+        onClick={sync.syncNow}
+        title={[sync.message, sync.lastSyncedAt ? `Last synced ${timeAgo(sync.lastSyncedAt)}` : null, 'Click to sync now']
+          .filter(Boolean)
+          .join('\n')}
+        className="flex w-full items-center gap-1.5 text-left text-[11px] text-slate-500 hover:text-slate-800"
       >
-        <ProductThumb product={product} size={30} />
-        <div className="min-w-0 flex-1">
-          <div className={`truncate text-[13px] ${active ? 'font-medium text-white' : 'text-slate-300 group-hover:text-white'}`}>
-            {product.name}
-          </div>
-          <div className="truncate text-[11px] text-slate-500">{product.english}</div>
-        </div>
-        <StatusBadge status={status} />
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${label.dot}`} />
+        {label.text}
       </button>
-    </li>
+      {sync.status === 'locked' && (
+        <form onSubmit={submit} className="flex gap-1.5">
+          <input
+            type="password"
+            value={passcode}
+            onChange={(e) => setPasscode(e.target.value)}
+            placeholder="Team passcode"
+            className="min-w-0 flex-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs ring-1 ring-slate-200 focus:outline-none focus:ring-brand-300"
+          />
+          <button className="rounded-lg bg-brand-600 px-2.5 text-xs font-medium text-white hover:bg-brand-700">Unlock</button>
+        </form>
+      )}
+      {!browserSaved && <div className="text-[11px] text-amber-600">This browser is not keeping a local copy.</div>}
+    </div>
   );
 }
 
-/** Draft / comparison state at a glance. */
+/** Draft / comparison state at a glance. Differences are counted, never colored by direction here. */
 function StatusBadge({ status }: { status: ProductStatus | undefined }) {
   if (status?.unsynced) {
-    return (
-      <span className="h-2 w-2 shrink-0 rounded-full bg-amber-400" title="Edited here — not shared yet" />
-    );
+    return <span className="h-2 w-2 shrink-0 rounded-full bg-amber-400" title="Edited here — not shared yet" />;
   }
   if (!status?.hasDraft) return null;
   const c = status.compare;
   if (!c) {
-    return (
-      <span className="rounded px-1.5 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-inset ring-slate-700">
-        draft
-      </span>
-    );
+    return <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">draft</span>;
   }
   const changed = c.higher + c.lower;
   if (changed === 0) {
     return (
-      <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400" title="Matches production">
-        =
+      <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600" title="Matches production">
+        ✓ match
       </span>
     );
   }
   return (
     <span
-      className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-amber-300"
+      className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white"
       title={`${changed.toLocaleString()} price(s) differ from production`}
     >
       Δ {changed.toLocaleString()}
@@ -385,15 +350,15 @@ function DpInput({
   onChange: (v: number) => void;
 }) {
   return (
-    <label className="flex flex-1 items-center justify-between gap-2 rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11px] text-slate-400" title={title}>
-      {label}
+    <label className="flex flex-1 items-center gap-1 rounded-lg bg-slate-50 px-2 py-1 ring-1 ring-slate-200" title={title}>
+      <span className="text-[10px] uppercase text-slate-400">{label}</span>
       <input
         type="number"
         min={min}
         max={max}
         value={value}
         onChange={(e) => onChange(Number(e.target.value) || 0)}
-        className="w-10 bg-transparent text-right text-xs tabular-nums text-slate-100 focus:outline-none"
+        className="no-spin w-full min-w-[1.75rem] bg-transparent text-right text-xs tabular-nums text-slate-800 focus:outline-none"
       />
     </label>
   );
