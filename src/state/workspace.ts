@@ -65,13 +65,16 @@ type LooseSheet = { quantities: unknown[]; rows: Partial<SheetRow>[] };
  * Give stored rows fresh ids. Row ids come from a module counter that restarts
  * at every page load, so ids saved last session would collide with the next
  * row the grid adds.
+ *
+ * Sizes are dropped: the sheet no longer has a Size column, and a size nobody
+ * can see must not go on driving warnings or the production lookup.
  */
 export function hydrateSheet(sheet: LooseSheet): SheetState {
   return {
     quantities: sheet.quantities.map(String),
     rows: sheet.rows.map((r) => ({
       id: nextRowId(),
-      size: String(r.size ?? ''),
+      size: '',
       baseArea: String(r.baseArea ?? ''),
       prices: sheet.quantities.map((_, i) => String(r.prices?.[i] ?? '')),
     })),

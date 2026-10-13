@@ -249,8 +249,11 @@ it was compared against, and the match / higher / lower mix at a glance.
 
 **Grid** — works like Google Sheets
 
-Column letters (A = Size, B = Base Area, C… = quantities) and row numbers sit
-around a frozen header row where each quantity is typed. Above it, a toolbar
+Column letters (A = Base Area, B… = quantities) and row numbers sit around
+the frozen **Qty** row, which holds each column's quantity. There is no Size
+column: production prices by area alone, so a row is its base area. Tables
+pasted or imported with a leading Size column (the old layout) have it dropped
+automatically. Above it, a toolbar
 (undo, redo, copy sheet, insert, delete, fill, clear) and a formula bar that
 shows and edits the active cell. The status bar sums, averages and counts the
 numbers in a multi-cell selection.
@@ -263,7 +266,8 @@ numbers in a multi-cell selection.
 | Select a range | Drag, or Shift+click / Shift+arrows |
 | Select rows / columns | Click (or drag across) row numbers / column letters · Shift+Space · Ctrl+Space |
 | Paste from Sheets/Excel | Ctrl+V (grows rows and columns as needed) |
-| Paste the quantity row | Click a quantity header, Ctrl+V — spreads across the header, adding columns |
+| Edit the quantity row | Click **Qty** to select it, then type, paste (Ctrl+V) or clear (Delete) — like any row |
+| Paste a whole table | Select the **Qty** row's first cell (A), Ctrl+V a block whose first line is `Base Area, 10, 20…` |
 | Copy / cut a range | Ctrl+C · Ctrl+X |
 | Fill down / right | Ctrl+D · Ctrl+R (one row/column copies from the one above/left) |
 | Edit a cell | Double-click, Enter, F2, start typing, or type in the formula bar |
@@ -271,8 +275,8 @@ numbers in a multi-cell selection.
 | Jump to an edge | Ctrl+arrows · Ctrl+Home / Ctrl+End |
 | More rows | **Add N more rows at bottom**, under the last row |
 
-Size and Base Area always stay the first two columns; at least one quantity
-column always remains. Cells with a problem carry a red corner mark — hover
+Base Area always stays column A; at least one quantity column always remains,
+and the Qty row can be cleared but not deleted. Cells with a problem carry a red corner mark — hover
 for the reason.
 
 Rows are virtualized and the header + Size/Base Area columns stay pinned, so
@@ -616,7 +620,7 @@ receives sizes and quantities.
 npm test
 ```
 
-174 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
+181 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
 decimals (225 × 30 → ₩5,800), the large precision-sensitive row (366,000 ×
 30,000 → ₩155,793,118), a ~700-combination sweep asserting every exported rate
 rebuilds its price, CSV round-trip on a 2,907-cell table, input normalization,

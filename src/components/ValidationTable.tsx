@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { CellResult, EngineResult, InvalidSample, Issue } from '../types';
 import { formatDifference, formatKrw, groupDigits } from '../lib/decimal';
-import { FIRST_PRICE_COL } from '../state/sheetReducer';
+import { COL_BASE_AREA, FIRST_PRICE_COL } from '../state/sheetReducer';
 
 interface Props {
   result: EngineResult;
@@ -59,8 +59,7 @@ export default function ValidationTable({ result, onGoToCell }: Props) {
         <table className="w-full border-collapse text-xs">
           <thead className="sticky top-0 z-10 bg-slate-100 text-left">
             <tr className="border-b-2 border-slate-300">
-              <Th>Size</Th>
-              <Th right>Area</Th>
+              <Th right>Base Area</Th>
               <Th right>Qty</Th>
               <Th right>Expected</Th>
               <Th>Exact Price / mm²</Th>
@@ -74,7 +73,7 @@ export default function ValidationTable({ result, onGoToCell }: Props) {
           <tbody>
             {shown.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-slate-500">
+                <td colSpan={9} className="px-3 py-8 text-center text-slate-500">
                   {filter === 'problems' ? 'No problems — every populated price reproduces exactly.' : 'Nothing to show.'}
                 </td>
               </tr>
@@ -115,7 +114,6 @@ function Row({ cell, onGoToCell }: { cell: CellResult; onGoToCell: Props['onGoTo
       onClick={() => onGoToCell(cell.rowIndex, FIRST_PRICE_COL + cell.colIndex)}
       title="Click to jump to this cell in the Price Table"
     >
-      <td className="whitespace-nowrap px-2.5 py-1.5 text-slate-800">{cell.sizeLabel || '—'}</td>
       <td className="px-2.5 py-1.5 text-right tabular-nums text-slate-700">
         {cell.baseArea != null ? groupDigits(cell.baseArea) : '—'}
       </td>
@@ -195,7 +193,7 @@ function InvalidValues({
       <p className="px-3 pt-2 text-xs text-amber-800">
         These cells could not be read as numbers, so no rate was derived for them. If the values below look like
         headings or text from another column, the paste is misaligned — the grid expects{' '}
-        <strong>Size · Base Area · then one column per quantity</strong>.
+        <strong>Base Area · then one column per quantity</strong>.
       </p>
 
       <ul className="max-h-44 divide-y divide-amber-200 overflow-auto px-1 py-1">
@@ -206,7 +204,7 @@ function InvalidValues({
             onClick={() =>
               onGoToCell(
                 s.firstRowIndex,
-                s.field === 'price' ? FIRST_PRICE_COL + s.firstColIndex : s.firstColIndex,
+                s.field === 'price' ? FIRST_PRICE_COL + s.firstColIndex : COL_BASE_AREA,
               )
             }
             title="Click to jump to the first occurrence"
@@ -255,7 +253,7 @@ function IssueList({ issues, onGoToCell }: { issues: Issue[]; onGoToCell: Props[
             }`}
             onClick={() =>
               issue.rowIndex != null &&
-              onGoToCell(issue.rowIndex, issue.colIndex != null ? FIRST_PRICE_COL + issue.colIndex : 0)
+              onGoToCell(issue.rowIndex, issue.colIndex != null ? FIRST_PRICE_COL + issue.colIndex : COL_BASE_AREA)
             }
           >
             <span className={issue.severity === 'error' ? 'text-red-600' : 'text-amber-600'}>

@@ -79,6 +79,7 @@ function generatedRow(spec: SampleSpec): SheetRow {
 }
 
 export function buildSampleSheet(): SheetState {
+  // The sheet has no Size column; sizes above only document each row.
   const rows: SheetRow[] = [
     ...LITERAL_ROWS.map((r) => ({
       id: nextRowId(),
@@ -89,5 +90,5 @@ export function buildSampleSheet(): SheetState {
     ...GENERATED.map(generatedRow),
   ];
 
-  return { quantities: [...SAMPLE_QUANTITIES], rows };
+  return { quantities: [...SAMPLE_QUANTITIES], rows: rows.map((r) => ({ ...r, size: '' })) };
 }

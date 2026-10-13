@@ -2,8 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { CellResult, ParsedTable, SheetState } from '../types';
 import {
   COL_BASE_AREA,
-  COL_SIZE,
   FIRST_PRICE_COL,
+  QTY_ROW,
   getCellValue,
   selectionToTsv,
   sheetToTsv,
@@ -28,16 +28,18 @@ import {
  * A spreadsheet in the image of Google Sheets: lettered columns, numbered
  * rows, a formula bar, range selection by drag, right-click menus to insert
  * and delete rows and columns, undo/redo, and copy/paste that round-trips with
- * Sheets and Excel. Columns A (Size) and B (Base Area) are fixed; every column
- * from C on is a quantity, whose value is typed into the frozen header row.
+ * Sheets and Excel.
+ *
+ * Column A is Base Area; every column from B on is a quantity. The frozen
+ * "Qty" row (row index QTY_ROW) holds each column's quantity and behaves like
+ * any other row: select it, type into it, clear it, copy it, paste into it.
  */
 
 const ROW_H = 26;
 const LETTER_H = 22;
-const LABEL_H = 30;
-const HEADER_H = LETTER_H + LABEL_H;
+const QTY_H = 28;
+const HEADER_H = LETTER_H + QTY_H;
 const W_ROWNUM = 46;
-const W_SIZE = 124;
 const W_AREA = 112;
 const W_QTY = 104;
 const OVERSCAN = 8;
@@ -91,6 +93,12 @@ export function columnLetter(index: number): string {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+/** The Base Area label in the quantity row is fixed text, not a cell you can edit. */
+const isLabelCell = (r: number, c: number) => r === QTY_ROW && c === COL_BASE_AREA;
+
+/** "B5", or "B Qty" for the quantity row. */
+const cellName = (r: number, c: number) => (r === QTY_ROW ? `${columnLetter(c)} Qty` : `${columnLetter(c)}${r + 1}`);
+
 export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, parsed, cellIndex, focusRequest }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -112,7 +120,8 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
 
   const colCount = FIRST_PRICE_COL + sheet.quantities.length;
   const rowCount = sheet.rows.length;
-  const totalWidth = W_ROWNUM + W_SIZE + W_AREA + sheet.quantities.length * W_QTY;
+  const lastRow = rowCount - 1;
+  const totalWidth = W_ROWNUM + W_AREA + sheet.quantities.length * W_QTY;
 
   const sel = useMemo(
     () => ({
@@ -124,7 +133,11 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
     [anchor, focus],
   );
   const wholeRows = sel.c1 === 0 && sel.c2 === colCount - 1;
-  const wholeCols = sel.r1 === 0 && sel.r2 === rowCount - 1;
+  const wholeCols = sel.r1 <= 0 && sel.r2 === lastRow;
+  /** The selection's data rows, ignoring the quantity row. */
+  const dataR1 = Math.max(0, sel.r1);
+  const nDataRows = sel.r2 >= 0 ? sel.r2 - dataR1 + 1 : 0;
+  const onlyQtyRow = sel.r2 === QTY_ROW;
 
   /* ---------------- viewport measurement + virtualization ---------------- */
 
@@ -150,10 +163,10 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
 
   const clamp = useCallback(
     (p: Point): Point => ({
-      r: Math.max(0, Math.min(rowCount - 1, p.r)),
+      r: Math.max(QTY_ROW, Math.min(lastRow, p.r)),
       c: Math.max(0, Math.min(colCount - 1, p.c)),
     }),
-    [rowCount, colCount],
+    [lastRow, colCount],
   );
 
   // Rows or columns removed (delete, undo): keep the selection on the sheet.
@@ -169,13 +182,14 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
   const scrollCellIntoView = useCallback((p: Point) => {
     const el = scrollRef.current;
     if (!el) return;
-    const top = p.r * ROW_H;
-    if (top < el.scrollTop) el.scrollTop = top;
-    else if (top + ROW_H > el.scrollTop + el.clientHeight - HEADER_H) {
-      el.scrollTop = top + ROW_H - el.clientHeight + HEADER_H;
+    if (p.r >= 0) {
+      const top = p.r * ROW_H;
+      if (top < el.scrollTop) el.scrollTop = top;
+      else if (top + ROW_H > el.scrollTop + el.clientHeight - HEADER_H) {
+        el.scrollTop = top + ROW_H - el.clientHeight + HEADER_H;
+      }
     }
-
-    const frozen = W_ROWNUM + W_SIZE + W_AREA;
+    const frozen = W_ROWNUM + W_AREA;
     if (p.c >= FIRST_PRICE_COL) {
       const left = frozen + (p.c - FIRST_PRICE_COL) * W_QTY;
       if (left < el.scrollLeft + frozen) el.scrollLeft = left - frozen;
@@ -230,6 +244,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
 
   const beginEdit = useCallback(
     (p: Point, initial?: string, source: Editing['source'] = 'cell') => {
+      if (isLabelCell(p.r, p.c)) return;
       setEditing({ r: p.r, c: p.c, value: initial ?? getCellValue(sheet, p.r, p.c), source });
     },
     [sheet],
@@ -262,8 +277,8 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
 
   /* ---------------- operations (toolbar, menu, keyboard) ---------------- */
 
-  const nRows = sel.r2 - sel.r1 + 1;
   const nCols = sel.c2 - sel.c1 + 1;
+  const nCells = (sel.r2 - sel.r1 + 1) * nCols;
   /** Quantity columns inside the selection, as quantity indexes. */
   const qFirst = Math.max(sel.c1, FIRST_PRICE_COL) - FIRST_PRICE_COL;
   const qLast = sel.c2 - FIRST_PRICE_COL;
@@ -304,27 +319,30 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
   };
 
   const copySheet = async () => {
+    const tsv = sheetToTsv(sheet);
     try {
-      await navigator.clipboard.writeText(sheetToTsv(sheet));
-      const used = sheetToTsv(sheet).split('\n').length - 1;
-      flash(`Copied the whole sheet — ${plural(used, 'row')} × ${plural(colCount, 'column')}, with headers`);
+      await navigator.clipboard.writeText(tsv);
+      const used = tsv.split('\n').length - 1;
+      flash(`Copied the whole sheet — ${plural(used, 'row')} × ${plural(colCount, 'column')}, with the quantity row`);
     } catch {
       flash('The browser blocked clipboard access — select all (Ctrl+A) and press Ctrl+C');
     }
   };
 
   const insertRows = (where: 'above' | 'below') => {
-    const at = where === 'above' ? sel.r1 : sel.r2 + 1;
-    dispatch({ type: 'addRows', count: nRows, atIndex: at });
-    select({ r: at, c: wholeRows ? 0 : sel.c1 }, { r: at + nRows - 1, c: wholeRows ? colCount - 1 : sel.c2 });
+    const count = Math.max(1, nDataRows);
+    const at = where === 'above' ? dataR1 : Math.max(0, sel.r2 + 1);
+    dispatch({ type: 'addRows', count, atIndex: at });
+    select({ r: at, c: wholeRows ? 0 : sel.c1 }, { r: at + count - 1, c: wholeRows ? colCount - 1 : sel.c2 });
   };
 
   const deleteRows = () => {
-    const rowIndexes = Array.from({ length: nRows }, (_, i) => sel.r1 + i);
+    if (nDataRows === 0) return;
+    const rowIndexes = Array.from({ length: nDataRows }, (_, i) => dataR1 + i);
     dispatch({ type: 'deleteRows', rowIndexes });
-    const p = { r: Math.min(sel.r1, Math.max(0, rowCount - nRows - 1)), c: focus.c };
+    const p = { r: Math.min(dataR1, Math.max(0, rowCount - nDataRows - 1)), c: focus.c };
     select(p, p);
-    flash(`Deleted ${plural(nRows, 'row')} — Ctrl+Z to undo`);
+    flash(`Deleted ${plural(nDataRows, 'row')} — Ctrl+Z to undo`);
   };
 
   const insertColumns = (where: 'left' | 'right') => {
@@ -332,7 +350,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
     const at = where === 'left' ? qFirst : qCount > 0 ? qLast + 1 : 0;
     dispatch({ type: 'insertColumns', atIndex: at, count });
     const c1 = FIRST_PRICE_COL + at;
-    select({ r: wholeCols ? 0 : sel.r1, c: c1 }, { r: wholeCols ? rowCount - 1 : sel.r2, c: c1 + count - 1 });
+    select({ r: wholeCols ? QTY_ROW : sel.r1, c: c1 }, { r: wholeCols ? lastRow : sel.r2, c: c1 + count - 1 });
   };
 
   const deleteColumns = () => {
@@ -347,10 +365,14 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
   const clearSelection = () =>
     dispatch({ type: 'clearCells', rowStart: sel.r1, rowEnd: sel.r2, colStart: sel.c1, colEnd: sel.c2 });
 
+  const clearQtyRow = () =>
+    dispatch({ type: 'clearCells', rowStart: QTY_ROW, rowEnd: QTY_ROW, colStart: FIRST_PRICE_COL, colEnd: colCount - 1 });
+
   /** Ctrl+D / Ctrl+R. A single row (column) fills from the one above (left), as in Sheets. */
   const fill = (direction: 'down' | 'right') => {
     if (direction === 'down') {
-      const rowStart = nRows === 1 ? sel.r1 - 1 : sel.r1;
+      if (sel.r2 < 0) return;
+      const rowStart = nDataRows === 1 ? dataR1 - 1 : dataR1;
       if (rowStart < 0) return;
       dispatch({ type: 'fill', direction, rowStart, rowEnd: sel.r2, colStart: sel.c1, colEnd: sel.c2 });
     } else {
@@ -368,8 +390,8 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
   useEffect(() => {
     /**
      * Only act on clipboard events aimed at the grid itself. When focus sits in
-     * a real input — a quantity header, the cell editor, the formula bar — the
-     * browser's own behaviour must win.
+     * a real input — the cell editor, the formula bar — the browser's own
+     * behaviour must win.
      */
     const isOurs = (e: ClipboardEvent) => {
       if (!hasFocus || editing) return false;
@@ -413,8 +435,8 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (editing) return;
 
-    // Keys pressed inside a real input (a quantity header, the editor, the
-    // formula bar) belong to that input — including its own Ctrl+Z.
+    // Keys pressed inside a real input (the editor, the formula bar) belong to
+    // that input — including its own Ctrl+Z.
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
 
@@ -430,7 +452,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
     }
     if (mod && key === 'a') {
       e.preventDefault();
-      select({ r: 0, c: 0 }, { r: rowCount - 1, c: colCount - 1 });
+      select({ r: QTY_ROW, c: 0 }, { r: lastRow, c: colCount - 1 });
       return;
     }
     if (mod && (key === 'd' || key === 'r')) {
@@ -440,7 +462,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
     }
     if (mod && e.key === ' ') {
       e.preventDefault();
-      select({ r: 0, c: sel.c1 }, { r: rowCount - 1, c: sel.c2 });
+      select({ r: QTY_ROW, c: sel.c1 }, { r: lastRow, c: sel.c2 });
       return;
     }
     if (e.shiftKey && e.key === ' ') {
@@ -453,11 +475,11 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
     switch (e.key) {
       case 'ArrowUp':
         e.preventDefault();
-        moveTo({ r: mod ? 0 : r - 1, c }, extend);
+        moveTo({ r: mod ? QTY_ROW : r - 1, c }, extend);
         return;
       case 'ArrowDown':
         e.preventDefault();
-        moveTo({ r: mod ? rowCount - 1 : r + 1, c }, extend);
+        moveTo({ r: mod ? lastRow : r + 1, c }, extend);
         return;
       case 'ArrowLeft':
         e.preventDefault();
@@ -488,11 +510,11 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
         return;
       case 'Home':
         e.preventDefault();
-        moveTo({ r: mod ? 0 : r, c: 0 }, extend);
+        moveTo({ r: mod ? QTY_ROW : r, c: 0 }, extend);
         return;
       case 'End':
         e.preventDefault();
-        moveTo({ r: mod ? rowCount - 1 : r, c: colCount - 1 }, extend);
+        moveTo({ r: mod ? lastRow : r, c: colCount - 1 }, extend);
         return;
       case 'PageDown':
         e.preventDefault();
@@ -500,7 +522,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
         return;
       case 'PageUp':
         e.preventDefault();
-        moveTo({ r: r - Math.floor(viewportH / ROW_H), c }, extend);
+        moveTo({ r: Math.max(0, r - Math.floor(viewportH / ROW_H)), c }, extend);
         return;
       default:
         break;
@@ -563,8 +585,8 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
     const inside = wholeCols && c >= sel.c1 && c <= sel.c2;
     if (e.button === 2 && inside) return;
     if (editingRef.current) commitEdit();
-    if (e.shiftKey) select({ r: 0, c: anchor.c }, { r: rowCount - 1, c });
-    else select({ r: 0, c }, { r: rowCount - 1, c });
+    if (e.shiftKey) select({ r: QTY_ROW, c: anchor.c }, { r: lastRow, c });
+    else select({ r: QTY_ROW, c }, { r: lastRow, c });
     dragRef.current = 'cols';
     refocus();
   };
@@ -582,11 +604,12 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
   /* ---------------- selection stats (status bar) ---------------- */
 
   const stats = useMemo(() => {
-    const cells = nRows * nCols;
-    if (cells < 2 || cells > 200_000) return null;
+    // Prices only: the quantity row's numbers are not amounts.
+    const cells = (sel.r2 - dataR1 + 1) * nCols;
+    if (sel.r2 < 0 || nCells < 2 || cells > 200_000) return null;
     let count = 0;
     let sum = 0;
-    for (let r = sel.r1; r <= sel.r2; r++) {
+    for (let r = dataR1; r <= sel.r2; r++) {
       for (let c = sel.c1; c <= sel.c2; c++) {
         const n = parseNumeric(getCellValue(sheet, r, c));
         if (n.value != null) {
@@ -596,39 +619,40 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
       }
     }
     return count > 0 ? { count, sum, avg: sum / count } : null;
-  }, [sheet, sel, nRows, nCols]);
+  }, [sheet, sel, dataR1, nCols, nCells]);
 
   /* ---------------- cell appearance ---------------- */
 
-  const cellTone = (r: number, c: number): { classes: string; flag: boolean } => {
-    const row = parsed.rows[r];
-    if (c === COL_SIZE) {
-      return row && !row.isEmpty && row.size.error
-        ? { classes: 'bg-amber-50 text-amber-900', flag: true }
-        : { classes: 'text-slate-900', flag: false };
+  const cellTone = (r: number, c: number): { classes: string; flag: string | null } => {
+    if (r === QTY_ROW) {
+      if (c === COL_BASE_AREA) return { classes: 'font-bold text-slate-700', flag: null };
+      const pq = parsed.quantities[c - FIRST_PRICE_COL];
+      if (pq?.error && pq.raw.trim() !== '') return { classes: 'bg-red-50 font-bold text-red-700', flag: pq.error };
+      if (pq?.duplicate) return { classes: 'bg-amber-50 font-bold text-amber-800', flag: `Duplicate quantity column: ${pq.value}` };
+      return { classes: 'font-bold text-slate-700', flag: null };
     }
+
+    const row = parsed.rows[r];
     if (c === COL_BASE_AREA) {
-      if (row && !row.isEmpty && row.baseArea.error) return { classes: 'bg-red-50 text-red-700', flag: true };
-      if (row?.baseAreaMismatch) return { classes: 'bg-amber-50 text-amber-900', flag: true };
-      return { classes: 'text-slate-900', flag: false };
+      if (row && !row.isEmpty && row.baseArea.error) return { classes: 'bg-red-50 text-red-700', flag: row.baseArea.error };
+      return { classes: 'text-slate-900', flag: null };
     }
     const result = cellIndex[r]?.[c - FIRST_PRICE_COL];
-    if (!result) return { classes: 'text-slate-900', flag: false };
-    if (result.status === 'PASS') return { classes: 'bg-emerald-50/70 text-slate-900', flag: false };
-    if (result.status === 'INVALID') return { classes: 'bg-red-50 text-red-700', flag: true };
+    if (!result) return { classes: 'text-slate-900', flag: null };
+    if (result.status === 'PASS') return { classes: 'bg-emerald-50/70 text-slate-900', flag: null };
+    if (result.status === 'INVALID') return { classes: 'bg-red-50 text-red-700', flag: result.message };
     if (result.status === 'NEEDS_REVIEW' || result.status === 'FAIL') {
-      return { classes: 'bg-red-50 font-semibold text-red-700', flag: true };
+      return { classes: 'bg-red-50 font-semibold text-red-700', flag: result.message };
     }
-    return { classes: 'text-slate-900', flag: false };
+    return { classes: 'text-slate-900', flag: null };
   };
 
-  /** The selection's outline is drawn on its edge cells, so it survives frozen columns. */
+  /** The selection's outline is drawn on its edge cells, so it survives frozen rows and columns. */
   const selectionShadow = (r: number, c: number): string | undefined => {
     const shadows: string[] = [];
-    const isFocus = r === focus.r && c === focus.c;
-    if (isFocus) shadows.push(`inset 0 0 0 2px ${BLUE}`);
+    if (r === focus.r && c === focus.c) shadows.push(`inset 0 0 0 2px ${BLUE}`);
     const inSel = r >= sel.r1 && r <= sel.r2 && c >= sel.c1 && c <= sel.c2;
-    if (inSel && nRows * nCols > 1) {
+    if (inSel && nCells > 1) {
       if (r === sel.r1) shadows.push(`inset 0 1px 0 ${BLUE}`);
       if (r === sel.r2) shadows.push(`inset 0 -1px 0 ${BLUE}`);
       if (c === sel.c1) shadows.push(`inset 1px 0 0 ${BLUE}`);
@@ -637,12 +661,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
     return shadows.length ? shadows.join(', ') : undefined;
   };
 
-  const stickyLeft = (c: number): number | undefined => {
-    if (c === COL_SIZE) return W_ROWNUM;
-    if (c === COL_BASE_AREA) return W_ROWNUM + W_SIZE;
-    return undefined;
-  };
-  const colWidth = (c: number) => (c === COL_SIZE ? W_SIZE : c === COL_BASE_AREA ? W_AREA : W_QTY);
+  const colWidth = (c: number) => (c === COL_BASE_AREA ? W_AREA : W_QTY);
 
   const headerTone = (selected: boolean, whole: boolean) =>
     whole && selected
@@ -651,17 +670,72 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
         ? 'bg-[#d3e3fd] text-slate-900 font-semibold'
         : 'bg-[#f8f9fa] text-slate-500';
 
-  const nameBox =
-    nRows * nCols === 1
-      ? `${columnLetter(focus.c)}${focus.r + 1}`
-      : `${columnLetter(sel.c1)}${sel.r1 + 1}:${columnLetter(sel.c2)}${sel.r2 + 1}`;
+  const nameBox = nCells === 1 ? cellName(focus.r, focus.c) : `${cellName(sel.r1, sel.c1)}:${cellName(sel.r2, sel.c2)}`;
 
   const barValue =
     editing && editing.r === focus.r && editing.c === focus.c ? editing.value : getCellValue(sheet, focus.r, focus.c);
 
-  /* ---------------- render ---------------- */
+  /** One grid cell — data rows and the quantity row share it. */
+  const renderCell = (r: number, c: number, inSelRow: boolean) => {
+    const isEditing = editing?.source === 'cell' && editing.r === r && editing.c === c;
+    const value = getCellValue(sheet, r, c);
+    const tone = cellTone(r, c);
+    const inSel = inSelRow && c >= sel.c1 && c <= sel.c2;
+    const isFocus = r === focus.r && c === focus.c;
+    const result = r >= 0 && c >= FIRST_PRICE_COL ? cellIndex[r]?.[c - FIRST_PRICE_COL] : undefined;
+    const title =
+      tone.flag ??
+      (result?.status === 'PASS' ? `Rate ${result.exportRate} · reconstructs exactly` : undefined) ??
+      (r === QTY_ROW && c >= FIRST_PRICE_COL ? 'Quantity for this column' : undefined);
+    const frozen = c === COL_BASE_AREA;
 
-  const rowRange = nRows === 1 ? `row ${sel.r1 + 1}` : `rows ${sel.r1 + 1}–${sel.r2 + 1}`;
+    return (
+      <div
+        key={c}
+        onMouseDown={(e) => onCellMouseDown(e, { r, c })}
+        onMouseEnter={() => {
+          if (dragRef.current === 'cells') setFocus({ r, c });
+        }}
+        onDoubleClick={() => beginEdit({ r, c })}
+        className={`relative truncate border-r px-1.5 text-right text-[13px] tabular-nums ${
+          r === QTY_ROW ? 'border-[#c4c7c5] leading-[27px]' : 'border-b border-[#e2e3e3] leading-[25px]'
+        } ${frozen ? 'sticky z-[5]' : ''} ${tone.classes} ${
+          !tone.classes.includes('bg-') ? (r === QTY_ROW ? 'bg-[#f1f3f4]' : frozen ? 'bg-white' : '') : ''
+        }`}
+        style={{
+          width: colWidth(c),
+          height: r === QTY_ROW ? QTY_H : ROW_H,
+          left: frozen ? W_ROWNUM : undefined,
+          boxShadow: selectionShadow(r, c),
+        }}
+        title={title}
+      >
+        {inSel && !isFocus && <span className="pointer-events-none absolute inset-0 bg-[#1a73e8]/10" />}
+        {tone.flag && (
+          <span className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[6px] border-t-[6px] border-l-transparent border-t-red-500" />
+        )}
+        {isEditing ? (
+          <input
+            ref={editInputRef}
+            value={editing.value}
+            onChange={(e) => setEditing({ r, c, value: e.target.value, source: 'cell' })}
+            onKeyDown={onEditKeyDown}
+            onBlur={() => commitEdit()}
+            className="absolute inset-0 z-10 w-full bg-white px-1.5 text-right text-[13px] tabular-nums outline-none"
+            style={{ boxShadow: `inset 0 0 0 2px ${BLUE}, 0 2px 6px rgba(0,0,0,.2)` }}
+          />
+        ) : r === QTY_ROW && c >= FIRST_PRICE_COL && value === '' ? (
+          <span className="font-normal text-slate-400">qty</span>
+        ) : (
+          value
+        )}
+      </div>
+    );
+  };
+
+  /* ---------------- context menu ---------------- */
+
+  const rowRange = nDataRows <= 1 ? `row ${dataR1 + 1}` : `rows ${dataR1 + 1}–${sel.r2 + 1}`;
   const colRange =
     qCount === 0
       ? ''
@@ -670,9 +744,10 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
         : `columns ${columnLetter(FIRST_PRICE_COL + qFirst)}–${columnLetter(FIRST_PRICE_COL + qLast)}`;
 
   // Like Sheets, a whole-row selection offers row actions, a whole-column
-  // selection column actions, and a cell range both.
-  const showRowItems = !wholeCols || wholeRows;
-  const showColItems = !wholeRows || wholeCols;
+  // selection column actions, and a cell range both. The quantity row cannot
+  // be deleted, only cleared.
+  const showRowItems = !onlyQtyRow && (!wholeCols || wholeRows);
+  const showColItems = !wholeRows || wholeCols || onlyQtyRow;
   const menuItems: (MenuItem | null)[] = [
     { label: 'Cut', hint: 'Ctrl+X', icon: <CutIcon />, onClick: () => void copySelection(true) },
     { label: 'Copy', hint: 'Ctrl+C', icon: <CopyIcon />, onClick: () => void copySelection(false) },
@@ -680,8 +755,8 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
     null,
     ...(showRowItems
       ? [
-          { label: `Insert ${plural(nRows, 'row')} above`, icon: <RowInsertIcon />, onClick: () => insertRows('above') },
-          { label: `Insert ${plural(nRows, 'row')} below`, icon: <RowInsertIcon />, onClick: () => insertRows('below') },
+          { label: `Insert ${plural(Math.max(1, nDataRows), 'row')} above`, icon: <RowInsertIcon />, onClick: () => insertRows('above') },
+          { label: `Insert ${plural(Math.max(1, nDataRows), 'row')} below`, icon: <RowInsertIcon />, onClick: () => insertRows('below') },
         ]
       : []),
     ...(showColItems
@@ -691,7 +766,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
             icon: <ColumnInsertIcon />,
             onClick: () => insertColumns('left'),
             disabled: sel.c1 < FIRST_PRICE_COL,
-            title: 'Size and Base Area stay the first two columns',
+            title: 'Base Area stays the first column',
           },
           {
             label: `Insert ${plural(Math.max(1, qCount), 'column')} right`,
@@ -709,14 +784,15 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
             icon: <TrashIcon />,
             onClick: deleteColumns,
             disabled: qCount === 0 || qCount >= sheet.quantities.length,
-            title: qCount === 0 ? 'Size and Base Area cannot be deleted' : 'At least one quantity column has to stay',
+            title: qCount === 0 ? 'Base Area cannot be deleted' : 'At least one quantity column has to stay',
             danger: true,
           },
         ]
       : []),
     { label: 'Clear values', hint: 'Delete', icon: <EraserIcon />, onClick: clearSelection },
+    { label: 'Clear quantity row', icon: <EraserIcon />, onClick: clearQtyRow },
     null,
-    { label: 'Fill down', hint: 'Ctrl+D', icon: <FillDownIcon />, onClick: () => fill('down'), disabled: sel.r2 === 0 },
+    { label: 'Fill down', hint: 'Ctrl+D', icon: <FillDownIcon />, onClick: () => fill('down'), disabled: sel.r2 <= 0 },
     {
       label: 'Fill right',
       hint: 'Ctrl+R',
@@ -727,6 +803,10 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
     null,
     { label: 'Copy whole sheet', icon: <CopyIcon />, onClick: () => void copySheet() },
   ];
+
+  /* ---------------- render ---------------- */
+
+  const qtySelected = sel.r1 === QTY_ROW;
 
   return (
     <div
@@ -742,18 +822,18 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
           <RedoIcon />
         </ToolButton>
         <Divider />
-        <ToolButton label="Copy the whole sheet, with headers — pastes into Google Sheets or Excel" onClick={copySheet} wide>
+        <ToolButton label="Copy the whole sheet, with the quantity row — pastes into Google Sheets or Excel" onClick={copySheet} wide>
           <CopyIcon />
           <span className="text-xs font-medium">Copy sheet</span>
         </ToolButton>
         <Divider />
-        <ToolButton label={`Insert ${plural(nRows, 'row')} below`} onClick={() => insertRows('below')}>
+        <ToolButton label={`Insert ${plural(Math.max(1, nDataRows), 'row')} below`} onClick={() => insertRows('below')}>
           <RowInsertIcon />
         </ToolButton>
         <ToolButton label={`Insert ${plural(Math.max(1, qCount), 'column')} right`} onClick={() => insertColumns('right')}>
           <ColumnInsertIcon />
         </ToolButton>
-        <ToolButton label={`Delete ${rowRange}`} onClick={deleteRows}>
+        <ToolButton label={nDataRows > 0 ? `Delete ${rowRange}` : 'Select rows to delete'} onClick={deleteRows} disabled={nDataRows === 0}>
           <TrashIcon />
         </ToolButton>
         <Divider />
@@ -770,22 +850,23 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
 
       {/* ------------------------------------------------ formula bar */}
       <div className="flex items-stretch border-b border-slate-200 text-[13px]">
-        <div className="flex w-24 shrink-0 items-center border-r border-slate-200 px-3 font-medium text-slate-700">
+        <div className="flex w-28 shrink-0 items-center border-r border-slate-200 px-3 font-medium text-slate-700">
           {nameBox}
         </div>
         <div className="flex items-center border-r border-slate-200 px-2.5 font-serif text-sm italic text-slate-400">fx</div>
         <input
           value={barValue}
+          readOnly={isLabelCell(focus.r, focus.c)}
           onFocus={() => setMenu(null)}
           onChange={(e) => {
-            const value = e.target.value;
-            setEditing({ r: focus.r, c: focus.c, value, source: 'bar' });
+            if (isLabelCell(focus.r, focus.c)) return;
+            setEditing({ r: focus.r, c: focus.c, value: e.target.value, source: 'bar' });
           }}
           onKeyDown={onEditKeyDown}
           onBlur={() => {
             if (editingRef.current?.source === 'bar') commitEdit();
           }}
-          placeholder={focus.c >= FIRST_PRICE_COL ? 'Expected price' : focus.c === COL_SIZE ? 'Size, e.g. 100*100' : 'Base area'}
+          placeholder={focus.r === QTY_ROW ? 'Quantity' : focus.c === COL_BASE_AREA ? 'Base area (mm²)' : 'Expected price'}
           className="min-w-0 flex-1 bg-white px-3 py-1.5 tabular-nums outline-none placeholder:text-slate-300"
           aria-label="Cell contents"
         />
@@ -812,12 +893,12 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
           className="h-full select-none overflow-auto bg-white"
         >
           <div style={{ width: totalWidth, position: 'relative' }}>
-            {/* Frozen header: column letters, then the labelled header row. */}
+            {/* Frozen: column letters, then the quantity row. */}
             <div className="sticky top-0 z-20" style={{ width: totalWidth }}>
               <div className="flex" style={{ height: LETTER_H }}>
                 <div
                   onMouseDown={() => {
-                    select({ r: 0, c: 0 }, { r: rowCount - 1, c: colCount - 1 });
+                    select({ r: QTY_ROW, c: 0 }, { r: lastRow, c: colCount - 1 });
                     refocus();
                   }}
                   className="sticky left-0 z-30 cursor-pointer border-b border-r border-[#c4c7c5] bg-[#f8f9fa]"
@@ -831,10 +912,10 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
                       key={c}
                       onMouseDown={(e) => onColHeaderMouseDown(e, c)}
                       onMouseEnter={() => {
-                        if (dragRef.current === 'cols') setFocus({ r: rowCount - 1, c });
+                        if (dragRef.current === 'cols') setFocus({ r: lastRow, c });
                       }}
-                      className={`${stickyLeft(c) != null ? 'sticky z-30' : ''} flex cursor-pointer items-center justify-center border-b border-r border-[#c4c7c5] text-[11px] ${headerTone(selected, wholeCols)}`}
-                      style={{ width: colWidth(c), left: stickyLeft(c) }}
+                      className={`${c === COL_BASE_AREA ? 'sticky z-30' : ''} flex cursor-pointer items-center justify-center border-b border-r border-[#c4c7c5] text-[11px] ${headerTone(selected, wholeCols)}`}
+                      style={{ width: colWidth(c), left: c === COL_BASE_AREA ? W_ROWNUM : undefined }}
                     >
                       {columnLetter(c)}
                     </div>
@@ -842,57 +923,19 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
                 })}
               </div>
 
-              <div className="flex border-b-2 border-[#c4c7c5]" style={{ height: LABEL_H }}>
+              <div className="flex border-b-2 border-[#c4c7c5]" style={{ height: QTY_H }}>
                 <div
-                  className="sticky left-0 z-30 border-r border-[#c4c7c5] bg-[#f8f9fa]"
+                  onMouseDown={(e) => onRowHeaderMouseDown(e, QTY_ROW)}
+                  onMouseEnter={() => {
+                    if (dragRef.current === 'rows') setFocus({ r: QTY_ROW, c: colCount - 1 });
+                  }}
+                  className={`sticky left-0 z-30 flex cursor-pointer items-center justify-center border-r border-[#c4c7c5] text-[10px] font-semibold uppercase tracking-wide ${headerTone(qtySelected, wholeRows)}`}
                   style={{ width: W_ROWNUM }}
-                />
-                <div
-                  className="sticky z-30 flex items-center border-r border-[#e2e3e3] bg-[#f1f3f4] px-2 text-[12px] font-bold text-slate-700"
-                  style={{ left: W_ROWNUM, width: W_SIZE }}
+                  title="Quantity row — click to select it, then paste, type or press Delete"
                 >
-                  Size
+                  Qty
                 </div>
-                <div
-                  className="sticky z-30 flex items-center justify-end border-r border-[#e2e3e3] bg-[#f1f3f4] px-2 text-[12px] font-bold text-slate-700"
-                  style={{ left: W_ROWNUM + W_SIZE, width: W_AREA }}
-                >
-                  Base Area
-                </div>
-                {sheet.quantities.map((q, i) => {
-                  const pq = parsed.quantities[i];
-                  const bad = pq?.error != null;
-                  const dup = pq?.duplicate ?? false;
-                  return (
-                    <div
-                      key={i}
-                      className={`flex items-center border-r border-[#e2e3e3] ${
-                        bad ? 'bg-red-50' : dup ? 'bg-amber-50' : 'bg-[#f1f3f4]'
-                      }`}
-                      style={{ width: W_QTY }}
-                      title={pq?.error ?? (dup ? `Duplicate quantity column: ${pq?.value}` : `Quantity ${pq?.value ?? ''}`)}
-                    >
-                      <input
-                        value={q}
-                        placeholder="qty"
-                        onChange={(e) => dispatch({ type: 'setQuantityHeader', colIndex: i, value: e.target.value })}
-                        onPaste={(e) => {
-                          const text = e.clipboardData.getData('text/plain');
-                          // A single value is an ordinary paste into this one header.
-                          if (!text || !/[\t\r\n]/.test(text)) return;
-                          e.preventDefault();
-                          const matrix = parseClipboardMatrix(text);
-                          if (matrix.length > 0) dispatch({ type: 'pasteQuantities', colIndex: i, matrix });
-                        }}
-                        onContextMenu={(e) => e.stopPropagation()}
-                        className={`h-full w-full bg-transparent px-2 text-right text-[12px] font-bold tabular-nums outline-none placeholder:font-normal placeholder:text-slate-400 focus:bg-white focus:shadow-[inset_0_0_0_2px_#1a73e8] ${
-                          bad ? 'text-red-700' : 'text-slate-700'
-                        }`}
-                        aria-label={`Quantity for column ${columnLetter(FIRST_PRICE_COL + i)}`}
-                      />
-                    </div>
-                  );
-                })}
+                {Array.from({ length: colCount }, (_, c) => renderCell(QTY_ROW, c, qtySelected))}
               </div>
             </div>
 
@@ -901,9 +944,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
               {visibleRows.map((r) => {
                 const row = sheet.rows[r];
                 if (!row) return null;
-                const parsedRow = parsed.rows[r];
                 const rowSelected = r >= sel.r1 && r <= sel.r2;
-
                 return (
                   <div key={row.id} className="absolute flex" style={{ top: r * ROW_H, height: ROW_H, width: totalWidth }}>
                     <div
@@ -916,60 +957,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
                     >
                       {r + 1}
                     </div>
-
-                    {Array.from({ length: colCount }, (_, c) => {
-                      const isEditing = editing?.source === 'cell' && editing.r === r && editing.c === c;
-                      const left = stickyLeft(c);
-                      const value = getCellValue(sheet, r, c);
-                      const result = c >= FIRST_PRICE_COL ? cellIndex[r]?.[c - FIRST_PRICE_COL] : undefined;
-                      const tone = cellTone(r, c);
-                      const inSel = rowSelected && c >= sel.c1 && c <= sel.c2;
-                      const isFocus = r === focus.r && c === focus.c;
-
-                      const title =
-                        c === COL_BASE_AREA && parsedRow?.baseAreaMismatch
-                          ? `Base area mismatch: provided ${parsedRow.baseArea.value}, width × height = ${parsedRow.size.calculatedArea}`
-                          : c === COL_SIZE && parsedRow?.size.error && !parsedRow.isEmpty
-                            ? parsedRow.size.error
-                            : (result?.message ??
-                              (result?.status === 'PASS' ? `Rate ${result.exportRate} · reconstructs exactly` : undefined));
-
-                      return (
-                        <div
-                          key={c}
-                          onMouseDown={(e) => onCellMouseDown(e, { r, c })}
-                          onMouseEnter={() => {
-                            if (dragRef.current === 'cells') setFocus({ r, c });
-                          }}
-                          onDoubleClick={() => beginEdit({ r, c })}
-                          className={`relative truncate border-b border-r border-[#e2e3e3] px-1.5 text-[13px] leading-[25px] ${
-                            c === COL_SIZE ? 'text-left' : 'text-right tabular-nums'
-                          } ${left != null ? 'sticky z-[5]' : ''} ${tone.classes} ${
-                            left != null && !tone.classes.includes('bg-') ? 'bg-white' : ''
-                          }`}
-                          style={{ width: colWidth(c), height: ROW_H, left, boxShadow: selectionShadow(r, c) }}
-                          title={title}
-                        >
-                          {inSel && !isFocus && <span className="pointer-events-none absolute inset-0 bg-[#1a73e8]/10" />}
-                          {tone.flag && (
-                            <span className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[6px] border-t-[6px] border-l-transparent border-t-red-500" />
-                          )}
-                          {isEditing ? (
-                            <input
-                              ref={editInputRef}
-                              value={editing.value}
-                              onChange={(e) => setEditing({ r, c, value: e.target.value, source: 'cell' })}
-                              onKeyDown={onEditKeyDown}
-                              onBlur={() => commitEdit()}
-                              className="absolute inset-0 z-10 w-full bg-white px-1.5 text-[13px] tabular-nums outline-none"
-                              style={{ textAlign: c === COL_SIZE ? 'left' : 'right', boxShadow: `inset 0 0 0 2px ${BLUE}, 0 2px 6px rgba(0,0,0,.2)` }}
-                            />
-                          ) : (
-                            value
-                          )}
-                        </div>
-                      );
-                    })}
+                    {Array.from({ length: colCount }, (_, c) => renderCell(r, c, rowSelected))}
                   </div>
                 );
               })}

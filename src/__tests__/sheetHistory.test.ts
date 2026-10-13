@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { historyReducer, initHistory, type HistoryAction, type SheetHistory } from '../state/history';
-import { sheetReducer, sheetToTsv } from '../state/sheetReducer';
+import { matrixToSheet, QTY_ROW, selectionToTsv, sheetReducer, sheetToTsv } from '../state/sheetReducer';
 import { columnLetter } from '../components/SpreadsheetGrid';
 import type { SheetState } from '../types';
 
@@ -18,7 +18,7 @@ const run = (actions: HistoryAction[], start: SheetHistory = initHistory(SHEET))
 describe('undo / redo', () => {
   it('undoes and redoes edits in order', () => {
     const h = run([
-      { type: 'setCell', rowIndex: 0, colIndex: 2, value: '2,000' },
+      { type: 'setCell', rowIndex: 0, colIndex: 1, value: '2,000' },
       { type: 'deleteRows', rowIndexes: [1] },
     ]);
     expect(h.present.rows).toHaveLength(2);
@@ -84,24 +84,70 @@ describe('row and column operations', () => {
   });
 
   it('fills down from the first row and right from the first column', () => {
-    const down = sheetReducer(SHEET, { type: 'fill', direction: 'down', rowStart: 0, rowEnd: 2, colStart: 2, colEnd: 3 });
+    const down = sheetReducer(SHEET, { type: 'fill', direction: 'down', rowStart: 0, rowEnd: 2, colStart: 1, colEnd: 2 });
     expect(down.rows.map((r) => r.prices.slice(0, 2))).toEqual([
       ['1,900', '3,600'],
       ['1,900', '3,600'],
       ['1,900', '3,600'],
     ]);
 
-    const right = sheetReducer(SHEET, { type: 'fill', direction: 'right', rowStart: 1, rowEnd: 1, colStart: 2, colEnd: 4 });
+    const right = sheetReducer(SHEET, { type: 'fill', direction: 'right', rowStart: 1, rowEnd: 1, colStart: 1, colEnd: 3 });
     expect(right.rows[1].prices).toEqual(['2,100', '2,100', '2,100']);
   });
 
-  it('copies the whole sheet with headers, without trailing empty rows', () => {
+  it('copies the whole sheet with the quantity row, without trailing empty rows', () => {
     expect(sheetToTsv(SHEET)).toBe(
-      ['Size\tBase Area\t10\t20\t30', '10*10\t100\t1,900\t3,600\t5,300', '15*15\t225\t2,100\t4,000\t5,800'].join('\n'),
+      ['Base Area\t10\t20\t30', '100\t1,900\t3,600\t5,300', '225\t2,100\t4,000\t5,800'].join('\n'),
     );
+  });
+
+  it('round-trips: a copied sheet pasted back gives the same table', () => {
+    const copied = sheetToTsv(SHEET).split('\n').map((l) => l.split('\t'));
+    const pasted = sheetReducer(SHEET, { type: 'paste', rowIndex: QTY_ROW, colIndex: 0, matrix: copied });
+    expect(pasted.quantities).toEqual(SHEET.quantities);
+    expect(pasted.rows.map((r) => [r.baseArea, ...r.prices])).toEqual(
+      SHEET.rows.slice(0, 2).map((r) => [r.baseArea, ...r.prices]),
+    );
+    expect(matrixToSheet(copied, ['1']).quantities).toEqual(SHEET.quantities);
   });
 
   it('letters columns the way spreadsheets do', () => {
     expect([0, 1, 2, 25, 26, 27, 701, 702].map(columnLetter)).toEqual(['A', 'B', 'C', 'Z', 'AA', 'AB', 'ZZ', 'AAA']);
+  });
+});
+
+describe('the quantity row', () => {
+  it('is edited like a cell', () => {
+    const next = sheetReducer(SHEET, { type: 'setCell', rowIndex: QTY_ROW, colIndex: 2, value: '25' });
+    expect(next.quantities).toEqual(['10', '25', '30']);
+    // The Base Area label is not editable.
+    expect(sheetReducer(SHEET, { type: 'setCell', rowIndex: QTY_ROW, colIndex: 0, value: 'x' })).toBe(SHEET);
+  });
+
+  it('clears with Delete, alone or together with the rows below', () => {
+    const qtyOnly = sheetReducer(SHEET, { type: 'clearCells', rowStart: QTY_ROW, rowEnd: QTY_ROW, colStart: 0, colEnd: 3 });
+    expect(qtyOnly.quantities).toEqual(['', '', '']);
+    expect(qtyOnly.rows).toBe(SHEET.rows);
+
+    const everything = sheetReducer(SHEET, { type: 'clearCells', rowStart: QTY_ROW, rowEnd: 2, colStart: 0, colEnd: 3 });
+    expect(everything.quantities).toEqual(['', '', '']);
+    expect(everything.rows.every((r) => r.baseArea === '' && r.prices.every((p) => p === ''))).toBe(true);
+  });
+
+  it('takes a pasted quantity row from any column, skipping the Base Area label', () => {
+    const fromB = sheetReducer(SHEET, { type: 'paste', rowIndex: QTY_ROW, colIndex: 1, matrix: [['100', '200', '300', '500']] });
+    expect(fromB.quantities).toEqual(['100', '200', '300', '500']);
+    expect(fromB.rows[0].prices).toEqual(['1,900', '3,600', '5,300', '']);
+
+    const fromA = sheetReducer(SHEET, { type: 'paste', rowIndex: QTY_ROW, colIndex: 0, matrix: [['Qty', '50', '60']] });
+    expect(fromA.quantities).toEqual(['50', '60']);
+  });
+
+  it('copies with the selection', () => {
+    expect(selectionToTsv(SHEET, QTY_ROW, 0, 0, 2)).toBe('Base Area\t10\t20\n100\t1,900\t3,600');
+  });
+
+  it('cannot be deleted as a row', () => {
+    expect(sheetReducer(SHEET, { type: 'deleteRows', rowIndexes: [QTY_ROW] })).toBe(SHEET);
   });
 });

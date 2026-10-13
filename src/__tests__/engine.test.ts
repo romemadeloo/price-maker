@@ -250,9 +250,9 @@ describe('paste alignment (header row handling)', () => {
   it('adopts the quantity header when a full table is pasted at the top-left', () => {
     const start = emptySheet(['10', '20', '30'], 3);
     const matrix = [
-      ['Size', 'Base Area', '100', '500', '1,000'],
-      ['10*10', '100', '19000', '95000', '190000'],
-      ['25*25', '625', '118750', '593750', '1187500'],
+      ['Base Area', '100', '500', '1,000'],
+      ['100', '19000', '95000', '190000'],
+      ['625', '118750', '593750', '1187500'],
     ];
     const next = sheetReducer(start, { type: 'paste', rowIndex: 0, colIndex: 0, matrix });
 
@@ -260,7 +260,7 @@ describe('paste alignment (header row handling)', () => {
     expect(next.quantities).toEqual(['100', '500', '1,000']);
     // The header row is NOT written in as data.
     expect(next.rows).toHaveLength(2);
-    expect(next.rows[0].size).toBe('10*10');
+    expect(next.rows[0].baseArea).toBe('100');
     expect(next.rows[0].prices).toEqual(['19000', '95000', '190000']);
 
     const result = runEngine(next);
@@ -272,13 +272,40 @@ describe('paste alignment (header row handling)', () => {
   it('does not eat a data row that merely starts at the top-left', () => {
     const start = emptySheet(['10', '20'], 3);
     const matrix = [
-      ['10*10', '100', '1900', '3600'],
-      ['25*25', '625', '2500', '4700'],
+      ['100', '1900', '3600'],
+      ['625', '2500', '4700'],
     ];
     const next = sheetReducer(start, { type: 'paste', rowIndex: 0, colIndex: 0, matrix });
     expect(next.quantities).toEqual(['10', '20']);
-    expect(next.rows[0].size).toBe('10*10');
-    expect(next.rows[1].size).toBe('25*25');
+    expect(next.rows[0].baseArea).toBe('100');
+    expect(next.rows[1].baseArea).toBe('625');
+  });
+
+  it('drops the Size column of a table made for the old layout', () => {
+    const start = emptySheet(['10', '20', '30'], 3);
+    const withHeader = sheetReducer(start, {
+      type: 'paste',
+      rowIndex: 0,
+      colIndex: 0,
+      matrix: [
+        ['Size', 'Base Area', '100', '500'],
+        ['10*10', '100', '19000', '95000'],
+      ],
+    });
+    expect(withHeader.quantities).toEqual(['100', '500']);
+    expect(withHeader.rows[0]).toMatchObject({ size: '', baseArea: '100', prices: ['19000', '95000'] });
+
+    // No header, but the first column is plainly sizes.
+    const dataOnly = sheetReducer(start, {
+      type: 'paste',
+      rowIndex: 0,
+      colIndex: 0,
+      matrix: [
+        ['10*10', '100', '1900'],
+        ['25*25', '625', '2500'],
+      ],
+    });
+    expect(dataOnly.rows[1]).toMatchObject({ baseArea: '625', prices: ['2500', '', ''] });
   });
 
   it('reports misaligned text as grouped unreadable values', () => {
@@ -352,14 +379,13 @@ describe('pasting into the quantity header row', () => {
     expect(next.rows[2].prices).toEqual(['', '']);
   });
 
-  it('produces a validating sheet when sizes are filled in afterwards', () => {
+  it('produces a validating sheet when base areas are filled in afterwards', () => {
     let s = emptySheet(['10'], 2);
     s = sheetReducer(s, { type: 'pasteQuantities', colIndex: 0, matrix: [['10', '20', '30']] });
-    s = sheetReducer(s, { type: 'setCell', rowIndex: 0, colIndex: 0, value: '10*10' });
-    s = sheetReducer(s, { type: 'setCell', rowIndex: 0, colIndex: 1, value: '100' });
-    s = sheetReducer(s, { type: 'setCell', rowIndex: 0, colIndex: 2, value: '1,900' });
-    s = sheetReducer(s, { type: 'setCell', rowIndex: 0, colIndex: 3, value: '3,600' });
-    s = sheetReducer(s, { type: 'setCell', rowIndex: 0, colIndex: 4, value: '5,300' });
+    s = sheetReducer(s, { type: 'setCell', rowIndex: 0, colIndex: 0, value: '100' });
+    s = sheetReducer(s, { type: 'setCell', rowIndex: 0, colIndex: 1, value: '1,900' });
+    s = sheetReducer(s, { type: 'setCell', rowIndex: 0, colIndex: 2, value: '3,600' });
+    s = sheetReducer(s, { type: 'setCell', rowIndex: 0, colIndex: 3, value: '5,300' });
 
     const result = runEngine(s);
     expect(result.quantities).toEqual([10, 20, 30]);
