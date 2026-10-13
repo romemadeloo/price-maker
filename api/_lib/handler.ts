@@ -34,9 +34,10 @@ export interface HandlerOptions {
 
 /**
  * Price-list keys: a product slug as the site uses it, optionally with a
- * variant (`vinyl-lettering~metallic`). The client checks them against the catalog.
+ * variant (`vinyl-lettering~metallic`), and `@studio` for a Studio Editor
+ * snapshot. The client checks them against the catalog.
  */
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:~[a-z0-9]+(?:-[a-z0-9]+)*)?$/;
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:~[a-z0-9]+(?:-[a-z0-9]+)*)?(?:@studio)?$/;
 const isSlug = (value: string) => value.length <= 64 && SLUG.test(value);
 
 const MAX_ROWS = 20_000;

@@ -26,7 +26,7 @@ import { parseDelimited } from '../lib/parse';
 import { CATEGORIES, priceListName, productUrl, type PriceList } from '../lib/products';
 import Swatches from './Swatches';
 import ProductThumb from './ProductThumb';
-import { compareDraft, type ProductionSnapshot } from '../lib/production';
+import { compareDraft, STUDIO_ADJUSTMENT, type ProductionSnapshot } from '../lib/production';
 import { timeAgo } from '../lib/format';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { DEFAULT_QUANTITIES, emptySheet, matrixToSheet, nextRowId } from '../state/sheetReducer';
@@ -36,7 +36,7 @@ import type { EngineOptions, SheetState } from '../types';
 import type { HeldDraft } from '../state/workspace';
 import type { PriceUnit } from '../lib/calculator';
 
-export type Tab = 'table' | 'rates' | 'calculator' | 'validation' | 'csv' | 'compare';
+export type Tab = 'table' | 'rates' | 'calculator' | 'validation' | 'csv' | 'compare' | 'studio';
 
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: 'table', label: 'Price Table', icon: <TableIcon /> },
@@ -45,6 +45,7 @@ const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: 'validation', label: 'Validation', icon: <ShieldIcon /> },
   { id: 'csv', label: 'CSV Preview', icon: <FileIcon /> },
   { id: 'compare', label: 'Compare to Production', icon: <CompareIcon /> },
+  { id: 'studio', label: 'Studio Editor', icon: <SparkIcon /> },
 ];
 
 /** Wait this long after the last keystroke before recalculating (spec §20). */
@@ -69,6 +70,9 @@ interface Props {
   onSaveDraft: (sheet: SheetState) => void;
   snapshot: ProductionSnapshot | null;
   onSnapshot: (snapshot: ProductionSnapshot) => void;
+  /** Production's Studio Editor prices for this list, compared on their own tab. */
+  studioSnapshot: ProductionSnapshot | null;
+  onStudioSnapshot: (snapshot: ProductionSnapshot) => void;
   /** Won unit drafted prices are rounded to before comparing; 1 = exact. */
   compareRounding: PriceUnit;
   onCompareRounding: (unit: PriceUnit) => void;
@@ -96,6 +100,8 @@ export default function ProductWorkspace({
   onSaveDraft,
   snapshot,
   onSnapshot,
+  studioSnapshot,
+  onStudioSnapshot,
   compareRounding,
   onCompareRounding,
   options,
@@ -137,6 +143,11 @@ export default function ProductWorkspace({
     const s = compareDraft(result.parsed, snapshot, { roundTo: compareRounding }).summary;
     return s.compared > 0 ? s.higher + s.lower : null;
   }, [result.parsed, snapshot, compareRounding]);
+  const studioChangedCount = useMemo(() => {
+    if (!studioSnapshot) return null;
+    const s = compareDraft(result.parsed, studioSnapshot, { roundTo: compareRounding, adjust: STUDIO_ADJUSTMENT }).summary;
+    return s.compared > 0 ? s.higher + s.lower : null;
+  }, [result.parsed, studioSnapshot, compareRounding]);
 
   const goToCell = useCallback(
     (rowIndex: number, colIndex: number) => {
@@ -186,7 +197,7 @@ export default function ProductWorkspace({
   };
 
   const category = CATEGORIES.find((c) => c.id === product.category);
-  const showSummary = tab !== 'compare' && tab !== 'calculator';
+  const showSummary = tab !== 'compare' && tab !== 'studio' && tab !== 'calculator';
 
   return (
     <div className="flex h-full min-w-0 flex-col">
@@ -271,14 +282,8 @@ export default function ProductWorkspace({
                 <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                   {problems.toLocaleString()}
                 </span>
-              ) : t.id === 'compare' && changedCount != null ? (
-                <span
-                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                    changedCount > 0 ? 'bg-slate-800 text-white' : 'bg-green-100 text-green-700'
-                  }`}
-                >
-                  {changedCount > 0 ? `Δ ${changedCount.toLocaleString()}` : '✓'}
-                </span>
+              ) : (t.id === 'compare' ? changedCount : t.id === 'studio' ? studioChangedCount : null) != null ? (
+                <DiffBadge count={(t.id === 'compare' ? changedCount : studioChangedCount)!} />
               ) : null;
             const active = tab === t.id;
             return (
@@ -401,10 +406,38 @@ export default function ProductWorkspace({
             onGoToCell={goToCell}
           />
         )}
+
+        {tab === 'studio' && (
+          <ProductionCompare
+            key="studio"
+            mode="studio"
+            priceList={priceList}
+            result={result}
+            options={options}
+            snapshot={studioSnapshot}
+            onSnapshot={onStudioSnapshot}
+            rounding={compareRounding}
+            onRounding={onCompareRounding}
+            onGoToCell={goToCell}
+          />
+        )}
       </main>
 
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={importText} />
     </div>
+  );
+}
+
+/** Differences against production on a tab: "Δ 12", or a green ✓ when everything matches. */
+function DiffBadge({ count }: { count: number }) {
+  return (
+    <span
+      className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+        count > 0 ? 'bg-slate-800 text-white' : 'bg-green-100 text-green-700'
+      }`}
+    >
+      {count > 0 ? `Δ ${count.toLocaleString()}` : '✓'}
+    </span>
   );
 }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { FullscreenButton, useFullscreen } from '../hooks/useFullscreen';
 import type { EngineOptions, EngineResult } from '../types';
 import { productUrl, type PriceList, type ProductOption, type Variant } from '../lib/products';
 import Swatches from './Swatches';
@@ -10,6 +11,10 @@ import {
   fetchProductionQuote,
   type CompareCell,
   type CompareRow,
+  adjustPrice,
+  STUDIO_ADJUSTMENT,
+  STUDIO_PARAMS,
+  type PriceAdjustment,
   type ProductionQuote,
   type ProductionSnapshot,
   type QuoteEntry,
@@ -23,6 +28,12 @@ import { FIRST_PRICE_COL } from '../state/sheetReducer';
 import { ArrowDownIcon, ArrowUpIcon, CheckIcon, DownloadIcon, ExternalIcon, RefreshIcon } from './icons';
 
 interface Props {
+  /**
+   * `production` compares against normal prices; `studio` against the Studio
+   * Editor's — production's price × 0.95, rounded to ₩10 — with the same
+   * discount applied to the draft.
+   */
+  mode?: 'production' | 'studio';
   /** The product, or one color group of it. */
   priceList: PriceList;
   result: EngineResult;
@@ -45,6 +56,7 @@ const MAX_MATRIX_ROWS = 300;
 const MAX_LIST_ROWS = 500;
 
 export default function ProductionCompare({
+  mode = 'production',
   priceList,
   result,
   options,
@@ -55,24 +67,35 @@ export default function ProductionCompare({
   onGoToCell,
 }: Props) {
   const { product, variant } = priceList;
+  const studio = mode === 'studio';
+  /** Everything sent with each quote: the variant's options, plus the Studio Editor flag. */
+  const params = useMemo(
+    () => ({ ...(variant?.params ?? {}), ...(studio ? STUDIO_PARAMS : {}) }),
+    [variant, studio],
+  );
   const [view, setView] = useState<View>('matrix');
   const [filter, setFilter] = useState<Filter>('all');
-  const [measure, setMeasure] = useState<Measure>('pct');
+  // ₩ first: the size of a gap in won is what gets acted on.
+  const [measure, setMeasure] = useState<Measure>('won');
+  const fullscreen = useFullscreen<HTMLElement>();
 
   const sizes = useMemo(() => draftSizes(result.parsed), [result.parsed]);
   const comparison = useMemo(
-    () => compareDraft(result.parsed, snapshot, { roundTo: rounding }),
-    [result.parsed, snapshot, rounding],
+    () => compareDraft(result.parsed, snapshot, { roundTo: rounding, adjust: studio ? STUDIO_ADJUSTMENT : null }),
+    [result.parsed, snapshot, rounding, studio],
   );
   const missing = useMemo(() => sizes.filter((s) => !snapshot?.quotes[s.key]), [sizes, snapshot]);
-  const { fetchSizes, progress, cancel } = useProductionFetch(product.slug, variant?.params, snapshot, onSnapshot);
+  const { fetchSizes, progress, cancel } = useProductionFetch(product.slug, params, snapshot, onSnapshot);
 
   const s = comparison.summary;
   const busy = progress != null;
 
   const exportCsv = () => {
     const stamp = new Date().toISOString().slice(0, 10);
-    downloadCsv(comparisonToCsv(comparison), `${priceList.key.replace('~', '-')}-vs-production-${stamp}.csv`);
+    downloadCsv(
+      comparisonToCsv(comparison),
+      `${priceList.key.replace('~', '-')}-vs-${studio ? 'studio-editor' : 'production'}-${stamp}.csv`,
+    );
   };
 
   const [spotOpen, setSpotOpen] = useState(false);
@@ -83,16 +106,23 @@ export default function ProductionCompare({
       <section className="card px-4 py-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-xs text-slate-500">
-            <span className="mr-1 text-sm font-bold text-slate-900">Draft vs production</span>
+            <span className="mr-1 text-sm font-bold text-slate-900">{studio ? 'Draft vs Studio Editor' : 'Draft vs production'}</span>
+            {studio && (
+              <Chip tone="violet">
+                {comparison.adjustment
+                  ? `−${Math.round((1 - comparison.adjustment.rate) * 100)}% · rounds to ₩${groupDigits(comparison.adjustment.normalizedBy)}`
+                  : '−5% · rounds to ₩10'}
+              </Chip>
+            )}
             {comparison.pricingName ? (
               <Chip tone="brand">
                 {comparison.pricingName}
                 {comparison.pricingId != null && <span className="opacity-60">#{comparison.pricingId}</span>}
               </Chip>
             ) : (
-              <span>live prices from musticker.com, per drafted size</span>
+              <span>live prices from musticker.com{studio ? ' (Studio Editor)' : ''}, per drafted size</span>
             )}
-            {comparison.normalizedNr != null && <Chip>rounds to ₩{groupDigits(comparison.normalizedNr)}</Chip>}
+            {comparison.normalizedNr != null && !studio && <Chip>rounds to ₩{groupDigits(comparison.normalizedNr)}</Chip>}
             {comparison.sheet && (
               <Chip tone="amber">
                 per {comparison.sheet.name} sheet ({comparison.sheet.width}×{comparison.sheet.height})
@@ -132,15 +162,30 @@ export default function ProductionCompare({
             ) : (
               <button className="btn btn-primary" onClick={() => fetchSizes(sizes, 'replace')} disabled={sizes.length === 0}>
                 <RefreshIcon width={14} height={14} />
-                {snapshot ? 'Refresh' : 'Fetch production prices'}
+                {snapshot ? 'Refresh' : studio ? 'Fetch Studio Editor prices' : 'Fetch production prices'}
               </button>
             )}
           </div>
         </div>
 
         <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-2.5">
-          <RoundingControl rounding={rounding} onRounding={onRounding} productionUnit={comparison.normalizedNr} rounded={s.rounded} />
-          {variant && <OptionCheck slug={product.slug} variant={variant} size={sizes[0] ?? DEFAULT_CHECK_SIZE} />}
+          <RoundingControl
+            rounding={rounding}
+            onRounding={onRounding}
+            // Studio prices are discounted from the normal (₩100) prices, so that is the unit to match.
+            productionUnit={studio ? 100 : comparison.normalizedNr}
+            rounded={s.rounded}
+            label={studio ? 'Round my prices, then −5%' : 'Round my prices'}
+          />
+          {variant && (
+            <OptionCheck slug={product.slug} variant={variant} size={sizes[0] ?? DEFAULT_CHECK_SIZE} extraParams={studio ? STUDIO_PARAMS : undefined} />
+          )}
+          {studio && (
+            <span className="text-xs text-slate-400">
+              Studio price = price × {comparison.adjustment?.rate ?? STUDIO_ADJUSTMENT.rate}, rounded to ₩
+              {comparison.adjustment?.normalizedBy ?? STUDIO_ADJUSTMENT.normalizedBy} — applied to your draft the same way
+            </span>
+          )}
         </div>
 
         {busy && (
@@ -165,23 +210,36 @@ export default function ProductionCompare({
         />
       ) : !snapshot ? (
         <EmptyState
-          title={`Compare ${sizes.length.toLocaleString()} size${sizes.length === 1 ? '' : 's'} against production`}
-          body="Each drafted size is quoted live from musticker.com and lined up against your draft, price by price. Results are stored with this price list's draft."
+          title={`Compare ${sizes.length.toLocaleString()} size${sizes.length === 1 ? '' : 's'} against ${studio ? 'the Studio Editor' : 'production'}`}
+          body={
+            studio
+              ? 'Each drafted size is quoted live from the Studio Editor (production’s price −5%, rounded to ₩10). Your draft gets the same discount, then the two are lined up price by price.'
+              : 'Each drafted size is quoted live from musticker.com and lined up against your draft, price by price. Results are stored with this price list’s draft.'
+          }
           action={
             sizes.length > 0 && !busy ? (
               <button className="btn btn-primary" onClick={() => fetchSizes(sizes, 'replace')}>
                 <RefreshIcon width={14} height={14} />
-                Fetch production prices
+                {studio ? 'Fetch Studio Editor prices' : 'Fetch production prices'}
               </button>
             ) : null
           }
         />
       ) : (
         <>
-          <StatsStrip comparison={comparison} />
-          {spotOpen && <SpotCheck priceList={priceList} result={result} options={options} rounding={rounding} />}
+          <StatsStrip comparison={comparison} against={studio ? 'Studio Editor' : 'production'} />
+          {spotOpen && (
+            <SpotCheck
+              priceList={priceList}
+              result={result}
+              options={options}
+              rounding={rounding}
+              params={params}
+              adjustment={studio ? (comparison.adjustment ?? STUDIO_ADJUSTMENT) : null}
+            />
+          )}
 
-          <section className="card flex min-h-[440px] flex-1 flex-col overflow-hidden">
+          <section ref={fullscreen.ref} style={fullscreen.panelStyle} className={`card flex min-h-[440px] flex-1 flex-col overflow-hidden ${fullscreen.panelClass}`}>
             <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
               <div className="pills">
                 <button aria-pressed={view === 'matrix'} onClick={() => setView('matrix')}>
@@ -200,10 +258,11 @@ export default function ProductionCompare({
                 <Seg
                   value={measure}
                   onChange={setMeasure}
-                  options={[['pct', 'Δ %'], ['won', 'Δ ₩'], ['draft', 'Draft'], ['prod', 'Production']]}
+                  options={[['won', 'Δ ₩'], ['pct', 'Δ %'], ['draft', 'Draft'], ['prod', 'Production']]}
                 />
               )}
               <HeatLegend />
+              <FullscreenButton modal={fullscreen} className="ml-auto lg:ml-2" />
             </div>
             <div className="min-h-0 flex-1 overflow-auto border-t border-slate-100">
               {view === 'matrix' ? (
@@ -289,7 +348,7 @@ function useProductionFetch(
  * The headline numbers in one compact strip, the match/higher/lower split as a
  * diverging bar under them, and anything worth knowing as small notes.
  */
-function StatsStrip({ comparison }: { comparison: ReturnType<typeof compareDraft> }) {
+function StatsStrip({ comparison, against }: { comparison: ReturnType<typeof compareDraft>; against: string }) {
   const s = comparison.summary;
   const share = (n: number) => (s.compared === 0 ? '0%' : `${((n / s.compared) * 100).toFixed(0)}%`);
   const largest = s.largest;
@@ -323,7 +382,7 @@ function StatsStrip({ comparison }: { comparison: ReturnType<typeof compareDraft
           sub={share(s.lower)}
           icon={<ArrowDownIcon width={12} height={12} style={{ color: DIFF.lower }} />}
         />
-        <Stat label="Average Δ" value={signedPct(s.avgDiffPct)} sub="draft vs production" />
+        <Stat label="Average Δ" value={signedPct(s.avgDiffPct)} sub={`draft vs ${against}`} />
         <Stat
           label="Largest gap"
           value={largest ? signedPct(largest.diffPct) : '—'}
@@ -425,7 +484,17 @@ function samePricing(a: ProductionQuote, b: ProductionQuote): boolean {
  * book — if production ever splits a group, this says so instead of the
  * comparison quietly covering only the first option.
  */
-function OptionCheck({ slug, variant, size }: { slug: string; variant: Variant; size: { width: number; height: number } }) {
+function OptionCheck({
+  slug,
+  variant,
+  size,
+  extraParams,
+}: {
+  slug: string;
+  variant: Variant;
+  size: { width: number; height: number };
+  extraParams?: Record<string, string>;
+}) {
   const [rows, setRows] = useState<OptionQuote[] | null>(null);
   const [nonce, setNonce] = useState(0);
 
@@ -437,7 +506,7 @@ function OptionCheck({ slug, variant, size }: { slug: string; variant: Variant; 
         try {
           const quote = await fetchProductionQuote(slug, size.width, size.height, {
             signal: ctrl.signal,
-            params: { ...variant.params, [variant.param]: String(option.id) },
+            params: { ...variant.params, ...(extraParams ?? {}), [variant.param]: String(option.id) },
           });
           return { option, quote, error: null };
         } catch (err) {
@@ -448,7 +517,7 @@ function OptionCheck({ slug, variant, size }: { slug: string; variant: Variant; 
       if (!ctrl.signal.aborted) setRows(result);
     });
     return () => ctrl.abort();
-  }, [slug, variant, size.width, size.height, nonce]);
+  }, [slug, variant, size.width, size.height, nonce, extraParams]);
 
   const reference = rows?.find((r) => r.quote)?.quote ?? null;
   const referenceOption = rows?.find((r) => r.quote === reference)?.option.name;
@@ -512,13 +581,19 @@ function SpotCheck({
   result,
   options,
   rounding,
+  params,
+  adjustment,
 }: {
   priceList: PriceList;
   result: EngineResult;
   options: EngineOptions;
   rounding: PriceUnit;
+  /** Sent with the production quote (variant options, Studio Editor flag). */
+  params: Record<string, string>;
+  /** Studio Editor discount to apply to the draft's quote, if comparing against the editor. */
+  adjustment: PriceAdjustment | null;
 }) {
-  const { product, variant } = priceList;
+  const { product } = priceList;
   const [width, setWidth] = useState('');
   const [height, setHeight] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -551,7 +626,8 @@ function SpotCheck({
 
     // The draft's own quote, built exactly as production builds one.
     const calc = calculate({ width, height, baseArea: '', quantity: String(q), mode: 'staged', roundTo: unit }, result, options);
-    const draft = calc.ok && calc.price != null ? Number(calc.price) : null;
+    const base = calc.ok && calc.price != null ? Number(calc.price) : null;
+    const draft = base != null && adjustment ? adjustPrice(base, adjustment) : base;
     const draftNote = !calc.ok
       ? (calc.errors[0] ?? 'The draft cannot price this.')
       : calc.outOfRange.length > 0
@@ -561,7 +637,7 @@ function SpotCheck({
     let production: number | null = null;
     let error: string | null = null;
     try {
-      const quote = await fetchProductionQuote(product.slug, w, h, { quantity: q, params: variant?.params });
+      const quote = await fetchProductionQuote(product.slug, w, h, { quantity: q, params });
       production = quote.prices.find((p) => p.quantity === q)?.price ?? null;
       if (production == null) error = 'Production returned no price for this quantity.';
     } catch (err) {
@@ -597,8 +673,16 @@ function SpotCheck({
 
       {state.kind === 'done' && (
         <div className="flex flex-wrap items-end gap-5 sm:ml-auto">
-          <Figure label="Draft" value={state.draft != null ? won(state.draft) : '—'} note={state.draftNote} />
-          <Figure label="Production" value={state.production != null ? won(state.production) : '—'} note={state.error} />
+          <Figure
+            label={adjustment ? 'Draft −5%' : 'Draft'}
+            value={state.draft != null ? won(state.draft) : '—'}
+            note={state.draftNote}
+          />
+          <Figure
+            label={adjustment ? 'Studio Editor' : 'Production'}
+            value={state.production != null ? won(state.production) : '—'}
+            note={state.error}
+          />
           <Figure
             label="Difference"
             value={diff != null ? signedWon(diff) : '—'}
@@ -870,7 +954,7 @@ function cellTitle(row: CompareRow, cell: CompareCell): string {
   if (cell.status === 'blank') return '';
   const parts = [`${row.baseArea != null ? `${groupDigits(row.baseArea)} mm²` : row.sizeLabel} (${row.sizeLabel}) × qty ${groupDigits(cell.quantity ?? 0)}`];
   if (cell.draftRaw != null && cell.draft !== cell.draftRaw) {
-    parts.push(`Draft ${won(cell.draftRaw)} → rounded ${won(cell.draft ?? 0)}`);
+    parts.push(`Draft ${won(cell.draftRaw)} → compared as ${won(cell.draft ?? 0)}`);
   } else {
     parts.push(`Draft ${won(cell.draft ?? 0)}`);
   }
@@ -991,11 +1075,13 @@ function RoundingControl({
   onRounding,
   productionUnit,
   rounded,
+  label = 'Round my prices',
 }: {
   rounding: PriceUnit;
   onRounding: (unit: PriceUnit) => void;
   productionUnit: number | null;
   rounded: number;
+  label?: string;
 }) {
   const matchable = productionUnit != null && (PRICE_UNITS as readonly number[]).includes(productionUnit);
   return (
@@ -1003,7 +1089,7 @@ function RoundingControl({
       className="flex flex-wrap items-center gap-2 text-xs"
       title="Drafted prices are rounded half-up before comparing — the draft itself is not changed. Rounded values show the original on hover."
     >
-      <span className="font-medium text-slate-500">Round my prices</span>
+      <span className="font-medium text-slate-500">{label}</span>
       <Seg value={String(rounding)} onChange={(v) => onRounding(Number(v) as PriceUnit)} options={ROUNDING_OPTIONS} />
       {matchable && rounding !== productionUnit && (
         <button className="font-medium text-brand-600 hover:text-brand-700" onClick={() => onRounding(productionUnit as PriceUnit)}>
@@ -1060,11 +1146,12 @@ function HeatLegend() {
   );
 }
 
-function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'brand' | 'amber' }) {
+function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'brand' | 'amber' | 'violet' }) {
   const tones = {
     neutral: 'bg-slate-100 text-slate-600',
     brand: 'bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-100',
     amber: 'bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-100',
+    violet: 'bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-100',
   };
   return <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium ${tones[tone]}`}>{children}</span>;
 }

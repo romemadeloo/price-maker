@@ -23,6 +23,31 @@ export interface ProductionPrice {
   price: number;
   /** Production's stored rate. Null for sheet-priced products. */
   pricePerMm: number | null;
+  /** The price before an adjustment (Studio Editor discount), when one applied. */
+  originalPrice?: number | null;
+}
+
+/**
+ * A price adjustment production applies on top of the normal price — the
+ * Studio Editor's "5% discount for studio items": price × rate, rounded to
+ * the nearest `normalizedBy` won.
+ */
+export interface PriceAdjustment {
+  rate: number;
+  normalizedBy: number;
+  description: string | null;
+}
+
+/** The Studio Editor rule as production states it (checked 2026-10-13); used until a quote says otherwise. */
+export const STUDIO_ADJUSTMENT: PriceAdjustment = { rate: 0.95, normalizedBy: 10, description: '5% discount for studio items' };
+
+/** Quotation parameters that ask production for Studio Editor pricing. */
+export const STUDIO_PARAMS: Record<string, string> = { override: '1' };
+
+/** Apply an adjustment the way production does: round(price × rate ÷ unit) × unit, half-up. */
+export function adjustPrice(price: number, adjustment: PriceAdjustment): number {
+  const unit = adjustment.normalizedBy > 0 ? adjustment.normalizedBy : 1;
+  return Math.round((price * adjustment.rate) / unit) * unit;
 }
 
 export interface ProductionQuote {
@@ -36,6 +61,8 @@ export interface ProductionQuote {
   pricingName: string | null;
   /** Set for products priced per sheet rather than per sticker. */
   sheet: { name: string; width: number; height: number } | null;
+  /** Set when production applied an adjustment (Studio Editor pricing). */
+  adjustment?: PriceAdjustment | null;
 }
 
 /** One size's outcome. Errors are kept so a refused size stays visible. */
@@ -78,10 +105,14 @@ export function parseQuotationResponse(json: unknown, width: number, height: num
     message?: string;
     data?: {
       normalized_nr?: unknown;
-      prices?: { nr?: unknown; price?: unknown; price_per_mm?: unknown }[];
+      prices?: { nr?: unknown; price?: unknown; price_per_mm?: unknown; original_price?: unknown }[];
       sheet?: { name?: string; width?: unknown; height?: unknown } | null;
     };
-    meta?: { pricing_id?: unknown; pricing?: unknown } | null;
+    meta?: {
+      pricing_id?: unknown;
+      pricing?: unknown;
+      pricing_adjustment?: { rate?: unknown; normalized_by?: unknown; description?: unknown } | null;
+    } | null;
   };
 
   if (!body || typeof body !== 'object') throw new Error('Unexpected response from production.');
@@ -95,12 +126,23 @@ export function parseQuotationResponse(json: unknown, width: number, height: num
     const quantity = num(p.nr);
     const price = num(p.price);
     if (quantity == null || price == null) continue;
-    prices.push({ quantity, price, pricePerMm: num(p.price_per_mm) });
+    prices.push({ quantity, price, pricePerMm: num(p.price_per_mm), originalPrice: num(p.original_price) });
   }
   prices.sort((a, b) => a.quantity - b.quantity);
 
   const sheet = body.data.sheet;
+  const adj = body.meta?.pricing_adjustment;
+  const rate = num(adj?.rate);
+  const adjustment: PriceAdjustment | null =
+    adj && typeof adj === 'object' && rate != null && rate > 0 && rate < 1
+      ? {
+          rate,
+          normalizedBy: num(adj.normalized_by) ?? 1,
+          description: typeof adj.description === 'string' ? adj.description : null,
+        }
+      : null;
   return {
+    adjustment,
     width,
     height,
     normalizedNr: num(body.data.normalized_nr),
@@ -210,6 +252,8 @@ export interface Comparison {
   sheet: ProductionQuote['sheet'];
   /** Won unit drafted prices were rounded to before comparing; 1 = exact. */
   roundTo: number;
+  /** The adjustment applied to drafted prices (Studio Editor), or null for normal prices. */
+  adjustment: PriceAdjustment | null;
 }
 
 /**
@@ -266,9 +310,19 @@ export function draftSizes(parsed: ParsedTable): { width: number; height: number
 export function compareDraft(
   parsed: ParsedTable,
   snapshot: ProductionSnapshot | null,
-  options: { roundTo?: number } = {},
+  options: {
+    roundTo?: number;
+    /**
+     * Compare against adjusted (Studio Editor) prices: each drafted price is
+     * rounded as usual, then adjusted the way production adjusts its own —
+     * by the rate in the fetched quotes, else this fallback.
+     */
+    adjust?: PriceAdjustment | null;
+  } = {},
 ): Comparison {
   const roundTo = options.roundTo ?? 1;
+  const quoted = Object.values(snapshot?.quotes ?? {}).find((e) => e.ok && e.quote.adjustment);
+  const adjustment = options.adjust ? ((quoted?.ok && quoted.quote.adjustment) || options.adjust) : null;
   const quantities = parsed.quantities.map((q) => q.value);
   const draftQuantities = new Set(quantities.filter((q): q is number => q != null));
   const productionOnly = new Set<number>();
@@ -333,8 +387,9 @@ export function compareDraft(
     const cells: CompareCell[] = row.cells.map((cell, colIndex) => {
       const quantity = quantities[colIndex] ?? null;
       const draftRaw = cell.status === 'ok' ? cell.value : null;
-      const draft = draftRaw == null ? null : roundPrice(draftRaw, roundTo);
-      if (draftRaw != null && draft !== draftRaw) summary.rounded += 1;
+      const rounded = draftRaw == null ? null : roundPrice(draftRaw, roundTo);
+      const draft = rounded != null && adjustment ? adjustPrice(rounded, adjustment) : rounded;
+      if (draftRaw != null && rounded !== draftRaw) summary.rounded += 1;
       const production = byQuantity && quantity != null ? (byQuantity.get(quantity) ?? null) : null;
       const base = { rowIndex: row.index, colIndex, quantity, draftRaw, draft, production };
 
@@ -386,6 +441,7 @@ export function compareDraft(
     normalizedNr,
     sheet,
     roundTo,
+    adjustment,
   };
 }
 

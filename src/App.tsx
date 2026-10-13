@@ -12,6 +12,7 @@ import {
   loadWorkspace,
   productStatus,
   saveWorkspace,
+  studioKey,
   type ProductStatus,
   type Workspace,
 } from './state/workspace';
@@ -92,14 +93,20 @@ export default function App() {
     (sheet: SheetState) => saveDraft(slug, revision, sheet),
     [saveDraft, slug, revision],
   );
-  const onSnapshot = useCallback(
-    (snapshot: ProductionSnapshot) =>
+  /** Store fetched production prices under a key: the list's, or its `@studio` key. */
+  const saveSnapshot = useCallback(
+    (key: string, snapshot: ProductionSnapshot) =>
       setWorkspace((ws) => ({
         ...ws,
-        snapshots: { ...ws.snapshots, [slug]: { ...snapshot, savedAt: new Date().toISOString() } },
-        dirtySnapshots: { ...ws.dirtySnapshots, [slug]: true },
+        snapshots: { ...ws.snapshots, [key]: { ...snapshot, savedAt: new Date().toISOString() } },
+        dirtySnapshots: { ...ws.dirtySnapshots, [key]: true },
       })),
-    [slug],
+    [],
+  );
+  const onSnapshot = useCallback((snapshot: ProductionSnapshot) => saveSnapshot(slug, snapshot), [saveSnapshot, slug]);
+  const onStudioSnapshot = useCallback(
+    (snapshot: ProductionSnapshot) => saveSnapshot(studioKey(slug), snapshot),
+    [saveSnapshot, slug],
   );
   const setOptions = useCallback((options: EngineOptions) => setWorkspace((ws) => ({ ...ws, options })), []);
   const setUserName = useCallback((userName: string) => setWorkspace((ws) => ({ ...ws, userName })), []);
@@ -128,7 +135,13 @@ export default function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-[#f5f6fa]">
       <NavRail
-        active={view === 'overview' ? 'overview' : tab === 'compare' ? 'compare' : tab === 'table' ? 'table' : null}
+        active={
+          view === 'overview'
+            ? 'overview'
+            : tab === 'compare' || tab === 'studio' || tab === 'table'
+              ? tab
+              : null
+        }
         onNavigate={(target: RailTarget) => {
           if (target === 'overview') setView('overview');
           else {
@@ -136,8 +149,6 @@ export default function App() {
             setTab(target);
           }
         }}
-        userName={workspace.userName}
-        sync={sync}
       />
       <Sidebar
         view={view}
@@ -152,7 +163,8 @@ export default function App() {
         onClose={() => setNavOpen(false)}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* Bottom padding keeps the floating dock clear of each page's last rows. */}
+      <div className="flex min-w-0 flex-1 flex-col pb-[72px]">
         <TopBar
           sync={sync}
           browserSaved={saved}
@@ -190,6 +202,8 @@ export default function App() {
             onSaveDraft={onSaveDraft}
             snapshot={workspace.snapshots[slug] ?? null}
             onSnapshot={onSnapshot}
+            studioSnapshot={workspace.snapshots[studioKey(slug)] ?? null}
+            onStudioSnapshot={onStudioSnapshot}
             compareRounding={workspace.compareRounding[slug] ?? 1}
             onCompareRounding={setCompareRounding}
             options={workspace.options}

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { FullscreenButton, useFullscreen } from '../hooks/useFullscreen';
 import type { EngineResult } from '../types';
 import { downloadCsv } from '../lib/csv';
 import { roundTripValidate } from '../lib/roundTrip';
@@ -15,6 +16,7 @@ export default function CsvPreview({ result, onReset, onRecalculate }: Props) {
   const [exportAnyway, setExportAnyway] = useState(false);
   const [copied, setCopied] = useState(false);
   const [manualCheck, setManualCheck] = useState<string | null>(null);
+  const fullscreen = useFullscreen();
 
   const { csv, summary, roundTrip } = result;
   const blocked = !summary.allValid;
@@ -58,7 +60,7 @@ export default function CsvPreview({ result, onReset, onRecalculate }: Props) {
   };
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    <div ref={fullscreen.ref} style={fullscreen.panelStyle} className={`flex h-full flex-col gap-3 ${fullscreen.panelClass} ${fullscreen.isFull ? 'p-4' : ''}`}>
       <div className="flex flex-wrap items-center gap-2">
         <button className="btn btn-default" onClick={copy}>
           {copied ? '✔ Copied' : 'Copy CSV'}
@@ -84,6 +86,7 @@ export default function CsvPreview({ result, onReset, onRecalculate }: Props) {
         <button className="btn btn-danger" onClick={onReset}>
           Reset
         </button>
+        <FullscreenButton modal={fullscreen} className="ml-auto" />
 
         {blocked && (
           <label className="ml-1 flex cursor-pointer items-center gap-1.5 rounded-md border border-amber-400 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900">

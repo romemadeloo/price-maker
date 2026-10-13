@@ -241,9 +241,31 @@ a bar per list split into draft lower (blue), match (green) and draft higher
 not drafted yet. Pills filter by category; hover a bar for counts, click a row
 to open that list.
 
+**Studio Editor** (tab) compares against what the musticker Studio Editor
+charges. Production prices editor orders from separate "[EDITOR]" price books
+with an adjustment — *5% discount for studio items*: the normal price × 0.95,
+rounded half-up to ₩10 (₩11,100 → ₩10,550). The tab asks the quotation endpoint
+for those prices exactly as the editor does (`override=1`), applies the same
+adjustment to your draft (after your chosen rounding, before the discount), and
+lines the two up in the same heatmap and differences views. The rate and
+rounding are read from production's response, so a changed discount is picked
+up automatically. Studio comparisons are stored and shared separately from the
+normal ones (`<price list>@studio`).
+
+**Dock** — Overview, Price table, Compare to production and Studio Editor sit
+in a macOS-style dock at the bottom centre of the window: icons swell as the
+pointer passes, the label shows above, and a dot marks where you are.
+
+**Expand** — every table (price table, price per mm², validation, CSV
+preview, and the compare/studio heatmap and differences) has an ⤢ Expand
+button that opens it in a modal over the page. Pick its size — 100% (the whole
+window, edge to edge), 90%, 80%, 70%, 60% or 50% — from the modal's toolbar;
+the choice is remembered in this browser. Esc, a click outside, or ✕ closes
+it. The table keeps its selection and scroll while open.
+
 **Top bar** — sharing status, **Rate dp** (decimal places for the exported
 rates) and **your name** (shown to others as "saved by") sit across the top of
-every page. Clicking your avatar in the icon rail jumps to the name.
+every page. 
 
 **Compare to Production** keeps everything on one compact bar (source, rounding,
 colors/material check, actions), a stats strip, and a **heatmap**: one row per
@@ -637,7 +659,7 @@ receives sizes and quantities.
 npm test
 ```
 
-181 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
+187 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
 decimals (225 × 30 → ₩5,800), the large precision-sensitive row (366,000 ×
 30,000 → ₩155,793,118), a ~700-combination sweep asserting every exported rate
 rebuilds its price, CSV round-trip on a 2,907-cell table, input normalization,

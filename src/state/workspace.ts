@@ -267,6 +267,18 @@ export function productStatus(workspace: Workspace, slug: string): ProductStatus
 /* Merging what the server has                                         */
 /* ------------------------------------------------------------------ */
 
+/** Studio Editor comparisons are stored beside the normal ones, under `<key>@studio`. */
+export const STUDIO_SUFFIX = '@studio';
+
+export function studioKey(listKey: string): string {
+  return `${listKey}${STUDIO_SUFFIX}`;
+}
+
+/** The price list a stored key belongs to (a studio snapshot key maps to its list). */
+export function listKeyOf(key: string): string {
+  return key.endsWith(STUDIO_SUFFIX) ? key.slice(0, -STUDIO_SUFFIX.length) : key;
+}
+
 /** A server copy waiting on the user: newer than the draft on screen, or one that beat our save. */
 export interface HeldDraft {
   /** Null when the server copy is a deletion. */
@@ -298,7 +310,7 @@ export function staleSlugs(
   for (const [slug, stamp] of Object.entries(index.snapshotStamps)) {
     if (!workspace.dirtySnapshots[slug] && stamp > snapshotStamp(workspace.snapshots[slug])) out.add(slug);
   }
-  return [...out].filter((slug) => findPriceList(slug));
+  return [...out].filter((slug) => findPriceList(listKeyOf(slug)));
 }
 
 /**
@@ -351,7 +363,7 @@ export function mergeRemote(
   }
 
   for (const [slug, snapshot] of Object.entries(remote.snapshots)) {
-    if (!findPriceList(slug) || workspace.dirtySnapshots[slug]) continue;
+    if (!findPriceList(listKeyOf(slug)) || workspace.dirtySnapshots[slug]) continue;
     if (snapshotStamp(snapshot) > snapshotStamp(snapshots[slug])) {
       snapshots[slug] = snapshot;
       changed = true;

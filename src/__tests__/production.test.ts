@@ -6,8 +6,11 @@ import {
   draftSizes,
   parseQuotationResponse,
   quotationUrl,
+  adjustPrice,
   roundPrice,
   sizeForArea,
+  STUDIO_ADJUSTMENT,
+  STUDIO_PARAMS,
   sizeKey,
   type ProductionSnapshot,
 } from '../lib/production';
@@ -74,7 +77,7 @@ describe('parseQuotationResponse', () => {
       100,
     );
     expect(quote.sheet).toEqual({ name: 'A5', width: 148, height: 210 });
-    expect(quote.prices).toEqual([{ quantity: 5, price: 2750, pricePerMm: null }]);
+    expect(quote.prices).toEqual([{ quantity: 5, price: 2750, pricePerMm: null, originalPrice: null }]);
   });
 
   it('throws production’s own message when it refuses', () => {
@@ -219,5 +222,87 @@ describe('rounding drafted prices before comparing', () => {
     ]);
     expect(c.summary).toMatchObject({ compared: 3, same: 2, lower: 1, rounded: 3 });
     expect(comparisonToCsv(c).split('\n')[1]).toBe('100×100,100,100,10000,10,11140,11100,11100,0,0.00,same');
+  });
+});
+
+describe('Studio Editor pricing', () => {
+  /**
+   * Captured from the live endpoint on 2026-10-13 with `override=1` (what the
+   * Studio Editor sends): /pricing/quotation/die-cut-sticker?width=100&height=100&override=1
+   */
+  const LIVE_STUDIO_100x100 = {
+    success: true,
+    data: {
+      normalized_nr: 10,
+      original_normalized_nr: 100,
+      sheet: null,
+      prices: [
+        { nr: 10, price: 10550, original_price: 11100, price_per_mm: 0.111 },
+        { nr: 20, price: 19000, original_price: 20000, price_per_mm: 0.1 },
+        { nr: 30, price: 28220, original_price: 29700, price_per_mm: 0.099 },
+        { nr: 100, price: 57860, original_price: 60900, price_per_mm: 0.0609 },
+      ],
+    },
+    meta: {
+      pricing_id: 51,
+      pricing: '[EDITOR] DIE CUT PRICING',
+      pricing_adjustment: { id: 1, rate: 0.95, normalized_by: 10, description: '5% discount for studio items' },
+    },
+  };
+  const studioQuote = parseQuotationResponse(LIVE_STUDIO_100x100, 100, 100);
+
+  it('reproduces production: normal price × 0.95, rounded half-up to ₩10', () => {
+    for (const p of studioQuote.prices) {
+      expect(adjustPrice(p.originalPrice!, STUDIO_ADJUSTMENT), `qty ${p.quantity}`).toBe(p.price);
+    }
+    // 11,100 × 0.95 = 10,545 → 10,550 (half-up).
+    expect(adjustPrice(11100, STUDIO_ADJUSTMENT)).toBe(10550);
+  });
+
+  it('reads the adjustment and original prices off the quote', () => {
+    expect(studioQuote.adjustment).toEqual({ rate: 0.95, normalizedBy: 10, description: '5% discount for studio items' });
+    expect(studioQuote.pricingName).toBe('[EDITOR] DIE CUT PRICING');
+    expect(studioQuote.prices[0]).toMatchObject({ quantity: 10, price: 10550, originalPrice: 11100 });
+    // A normal quote carries none.
+    expect(QUOTE_100.adjustment).toBeNull();
+  });
+
+  it('gives the draft the same discount before comparing', () => {
+    const sheet: SheetState = {
+      quantities: ['10', '20', '30'],
+      // 10 and 20 are production's normal prices; 30 is ₩100 higher.
+      rows: [{ id: 'a', size: '', baseArea: '10000', prices: ['11,100', '20,000', '29,800'] }],
+    };
+    const c = compareDraft(parseSheet(sheet), snapshotOf({ [sizeKey(100, 100)]: { ok: true, quote: studioQuote } }), {
+      adjust: STUDIO_ADJUSTMENT,
+    });
+    expect(c.adjustment?.rate).toBe(0.95);
+    expect(c.rows[0].cells.map((x) => [x.draftRaw, x.draft, x.production, x.status])).toEqual([
+      [11100, 10550, 10550, 'same'],
+      [20000, 19000, 19000, 'same'],
+      [29800, 28310, 28220, 'higher'],
+    ]);
+    // Only the user's own rounding counts as "rounded", not the discount.
+    expect(c.summary.rounded).toBe(0);
+  });
+
+  it('applies rounding first, then the discount', () => {
+    const sheet: SheetState = {
+      quantities: ['10'],
+      rows: [{ id: 'a', size: '', baseArea: '10000', prices: ['11,140'] }],
+    };
+    const c = compareDraft(parseSheet(sheet), snapshotOf({ [sizeKey(100, 100)]: { ok: true, quote: studioQuote } }), {
+      roundTo: 100,
+      adjust: STUDIO_ADJUSTMENT,
+    });
+    // 11,140 → ₩100: 11,100 → studio 10,550, as production would.
+    expect(c.rows[0].cells[0]).toMatchObject({ draftRaw: 11140, draft: 10550, status: 'same' });
+    expect(c.summary.rounded).toBe(1);
+  });
+
+  it('asks production for studio prices with override=1', () => {
+    expect(quotationUrl('die-cut-sticker', 100, 100, undefined, STUDIO_PARAMS)).toBe(
+      '/api/musticker/pricing/quotation/die-cut-sticker?width=100&height=100&override=1',
+    );
   });
 });

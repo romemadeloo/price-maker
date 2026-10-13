@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { FullscreenButton, useFullscreen } from '../hooks/useFullscreen';
 import type { EngineResult } from '../types';
 import { groupDigits } from '../lib/decimal';
 
@@ -15,6 +16,7 @@ const OVERSCAN = 10;
  */
 export default function RateTable({ result }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fullscreen = useFullscreen();
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(600);
 
@@ -54,10 +56,13 @@ export default function RateTable({ result }: Props) {
   }
 
   return (
-    <div className="flex h-full flex-col gap-2">
-      <div className="text-xs text-slate-500">
-        {rateRows.length.toLocaleString()} area_factor row(s) × {quantities.length} quantity column(s). Values are the
-        exact strings that will be written to the CSV.
+    <div ref={fullscreen.ref} style={fullscreen.panelStyle} className={`flex h-full flex-col gap-2 ${fullscreen.panelClass} ${fullscreen.isFull ? 'p-4' : ''}`}>
+      <div className="flex items-center gap-3 text-xs text-slate-500">
+        <span>
+          {rateRows.length.toLocaleString()} area_factor row(s) × {quantities.length} quantity column(s). Values are
+          the exact strings that will be written to the CSV.
+        </span>
+        <FullscreenButton modal={fullscreen} className="ml-auto" />
       </div>
       <div
         ref={scrollRef}

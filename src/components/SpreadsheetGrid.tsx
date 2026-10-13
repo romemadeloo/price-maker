@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { FullscreenButton, useFullscreen } from '../hooks/useFullscreen';
 import type { CellResult, ParsedTable, SheetState } from '../types';
 import {
   COL_BASE_AREA,
@@ -114,6 +115,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
   const [menu, setMenu] = useState<MenuState>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [moreRows, setMoreRows] = useState('100');
+  const fullscreen = useFullscreen();
 
   const editingRef = useRef(editing);
   editingRef.current = editing;
@@ -810,8 +812,9 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
 
   return (
     <div
-      className="flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-card"
-      style={{ fontFamily: 'Arial, Roboto, "Pretendard", sans-serif' }}
+      ref={fullscreen.ref}
+      className={`flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-card ${fullscreen.panelClass}`}
+      style={{ fontFamily: 'Arial, Roboto, "Pretendard", sans-serif', ...fullscreen.panelStyle }}
     >
       {/* ------------------------------------------------ toolbar */}
       <div className="flex flex-wrap items-center gap-0.5 border-b border-slate-200 bg-[#f0f4f9] px-2 py-1.5">
@@ -846,6 +849,8 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
         <span className="ml-auto truncate pl-3 text-xs text-slate-500">
           {notice ?? 'Right-click a cell, row number or column letter for more'}
         </span>
+        <Divider />
+        <FullscreenButton modal={fullscreen} />
       </div>
 
       {/* ------------------------------------------------ formula bar */}

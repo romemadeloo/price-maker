@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { FullscreenButton, useFullscreen } from '../hooks/useFullscreen';
 import type { CellResult, EngineResult, InvalidSample, Issue } from '../types';
 import { formatDifference, formatKrw, groupDigits } from '../lib/decimal';
 import { COL_BASE_AREA, FIRST_PRICE_COL } from '../state/sheetReducer';
@@ -14,6 +15,7 @@ const MAX_VISIBLE = 500;
 
 export default function ValidationTable({ result, onGoToCell }: Props) {
   const [filter, setFilter] = useState<Filter>('problems');
+  const fullscreen = useFullscreen();
 
   const rows = useMemo(() => {
     const withValues = result.cells.filter((c) => c.status !== 'BLANK');
@@ -25,7 +27,7 @@ export default function ValidationTable({ result, onGoToCell }: Props) {
   const shown = rows.slice(0, MAX_VISIBLE);
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-hidden">
+    <div ref={fullscreen.ref} style={fullscreen.panelStyle} className={`flex h-full flex-col gap-3 overflow-hidden ${fullscreen.panelClass} ${fullscreen.isFull ? 'p-4' : ''}`}>
       <InvalidValues samples={result.invalidSamples} onGoToCell={onGoToCell} />
 
       <IssueList issues={result.issues} onGoToCell={onGoToCell} />
@@ -53,6 +55,7 @@ export default function ValidationTable({ result, onGoToCell }: Props) {
           {rows.length.toLocaleString()} row(s)
           {rows.length > MAX_VISIBLE ? ` — showing the first ${MAX_VISIBLE.toLocaleString()}` : ''}
         </span>
+        <FullscreenButton modal={fullscreen} className="ml-auto" />
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-300 bg-white">

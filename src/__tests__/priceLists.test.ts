@@ -3,7 +3,7 @@ import { findPriceList, PRICE_LISTS, priceListName, PRODUCTS } from '../lib/prod
 import { quotationUrl } from '../lib/production';
 import { handleWorkspace } from '../../api/_lib/handler';
 import { memoryStore } from '../../api/_lib/store';
-import { emptyWorkspace, mergeRemote } from '../state/workspace';
+import { emptyWorkspace, listKeyOf, mergeRemote, studioKey } from '../state/workspace';
 
 describe('price lists', () => {
   const keysOf = (slug: string) => PRICE_LISTS.filter((l) => l.product.slug === slug).map((l) => l.key);
@@ -82,6 +82,23 @@ describe('price lists', () => {
     const remote = (await (await handleWorkspace(new Request('http://localhost/api/workspace'), store)).json()) as any;
     const { workspace } = mergeRemote(emptyWorkspace(), remote);
     expect(Object.keys(workspace.drafts)).toEqual(['vinyl-lettering~hologram']);
+  });
+
+  it('stores Studio Editor snapshots beside the normal ones', async () => {
+    const store = memoryStore();
+    const res = await handleWorkspace(
+      new Request('http://localhost/api/workspace?slug=vinyl-lettering~metallic@studio&kind=snapshot', {
+        method: 'PUT',
+        body: JSON.stringify({ fetchedAt: '2026-10-13T00:00:00Z', savedAt: '2026-10-13T00:00:00Z', quotes: {} }),
+      }),
+      store,
+    );
+    expect(res.status).toBe(200);
+    expect(listKeyOf(studioKey('vinyl-lettering~metallic'))).toBe('vinyl-lettering~metallic');
+
+    const remote = (await (await handleWorkspace(new Request('http://localhost/api/workspace'), store)).json()) as any;
+    const { workspace } = mergeRemote(emptyWorkspace(), remote);
+    expect(Object.keys(workspace.snapshots)).toEqual(['vinyl-lettering~metallic@studio']);
   });
 
   it('ignores keys that are not in the catalog', () => {
