@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseSheet } from '../lib/parse';
 import {
   compareDraft,
+  compareServers,
   comparisonToCsv,
   draftSizes,
   parseQuotationResponse,
@@ -91,6 +92,12 @@ describe('parseQuotationResponse', () => {
       '/api/musticker/pricing/quotation/die-cut-sticker?width=100&height=100',
     );
     expect(quotationUrl('die-cut-sticker', 123, 123, 123)).toContain('quantity=123');
+  });
+
+  it('asks the dev server through its own proxy route', () => {
+    expect(quotationUrl('die-cut-sticker', 25, 25, undefined, { color_id: '3' }, 'dev')).toBe(
+      '/api/musticker-dev/pricing/quotation/die-cut-sticker?width=25&height=25&color_id=3',
+    );
   });
 });
 
@@ -304,5 +311,46 @@ describe('Studio Editor pricing', () => {
     expect(quotationUrl('die-cut-sticker', 100, 100, undefined, STUDIO_PARAMS)).toBe(
       '/api/musticker/pricing/quotation/die-cut-sticker?width=100&height=100&override=1',
     );
+  });
+});
+
+describe('compareServers', () => {
+  const snap = (prices: Record<string, [number, number][]>, failed: string[] = []): ProductionSnapshot => ({
+    fetchedAt: 'x',
+    quotes: {
+      ...Object.fromEntries(
+        Object.entries(prices).map(([key, list]) => [
+          key,
+          {
+            ok: true as const,
+            quote: {
+              width: 10,
+              height: 10,
+              normalizedNr: 100,
+              pricingId: 1,
+              pricingName: null,
+              sheet: null,
+              prices: list.map(([quantity, price]) => ({ quantity, price, pricePerMm: null })),
+            },
+          },
+        ]),
+      ),
+      ...Object.fromEntries(failed.map((key) => [key, { ok: false as const, error: 'refused' }])),
+    },
+  });
+
+  it('counts the prices dev would change, and the biggest gap', () => {
+    const prod = snap({ '10x10': [[10, 1900], [20, 3600]], '20x20': [[10, 4000]], '30x30': [[10, 9000]] });
+    const dev = snap({ '10x10': [[10, 1900], [20, 3800], [30, 5000]], '20x20': [[10, 3500]] }, ['30x30']);
+    expect(compareServers(prod, dev)).toEqual({
+      compared: 3,
+      differ: 2,
+      largest: { sizeKey: '20x20', quantity: 10, production: 4000, dev: 3500 },
+    });
+  });
+
+  it('reports no differences when every shared price is equal', () => {
+    const same = snap({ '10x10': [[10, 1900]] });
+    expect(compareServers(same, same)).toEqual({ compared: 1, differ: 0, largest: null });
   });
 });

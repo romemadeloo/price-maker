@@ -81,10 +81,12 @@ export function useCloudSync(
   const apply = useCallback(
     (remote: RemoteWorkspace, slugs?: string[]) => {
       const options = { slugs, holdSlug: latest.current.holdSlug };
+      // Same pure merge against the latest render, to learn what was held back —
+      // and whether the product on screen (empty so far) is being filled in, which
+      // needs its table remounted on the new draft.
+      const { held, replacedHeld } = mergeRemote(latest.current.workspace, remote, options);
+      if (replacedHeld && options.holdSlug) latest.current.onReplace(options.holdSlug);
       setWorkspace((ws) => mergeRemote(ws, remote, options).workspace);
-
-      // Same pure merge against the latest render, only to learn what was held back.
-      const { held } = mergeRemote(latest.current.workspace, remote, options);
       setIncoming((current) => {
         const next = { ...current };
         for (const slug of slugs ?? Object.keys(next)) delete next[slug];

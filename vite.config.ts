@@ -8,6 +8,14 @@ import { workspaceApi } from './api/_lib/devServer';
  * vercel.json once deployed).
  */
 const productionApi: Record<string, ProxyOptions> = {
+  // The dev/staging server, for comparing against prices not yet live. Listed
+  // first: proxy routes match by prefix, and '/api/musticker' would catch it.
+  '/api/musticker-dev': {
+    target: 'https://dev-static-1-api.musticker.com',
+    changeOrigin: true,
+    secure: true,
+    rewrite: (path) => path.replace(/^\/api\/musticker-dev/, '/index.php/sys/kr'),
+  },
   '/api/musticker': {
     target: 'https://api.musticker.com',
     changeOrigin: true,

@@ -1,9 +1,10 @@
 import { DEFAULT_ENGINE_OPTIONS, type EngineOptions, type SheetRow, type SheetState } from '../types';
 import { DEFAULT_PRODUCT_SLUG, findPriceList } from '../lib/products';
-import { compareDraft, type CompareSummary, type ProductionSnapshot } from '../lib/production';
+import { compareDraft, STUDIO_ADJUSTMENT, type CompareSummary, type ProductionSnapshot } from '../lib/production';
 import { parseNumeric, parseSheet } from '../lib/parse';
 import { PRICE_UNITS, type PriceUnit } from '../lib/calculator';
 import type { RemoteDraft, RemoteWorkspace } from '../lib/sync';
+import type { Server } from '../lib/production';
 import { nextRowId } from './sheetReducer';
 
 /**
@@ -41,6 +42,8 @@ export interface Workspace {
    * with production (1 = exact). A viewing preference, kept in this browser.
    */
   compareRounding: Record<string, PriceUnit>;
+  /** Which musticker server comparisons are made against — a viewing choice, kept in this browser. */
+  server: Server;
 }
 
 const STORAGE_KEY = 'pricer-maker:workspace:v1';
@@ -56,6 +59,7 @@ export function emptyWorkspace(): Workspace {
     dirtySnapshots: {},
     userName: '',
     compareRounding: {},
+    server: 'production',
   };
 }
 
@@ -124,6 +128,7 @@ export function loadWorkspace(): Workspace {
       dirty: legacy ? allTrue(Object.keys(drafts)) : (stored.dirty ?? {}),
       dirtySnapshots: legacy ? allTrue(Object.keys(snapshots)) : (stored.dirtySnapshots ?? {}),
       userName: typeof stored.userName === 'string' ? stored.userName : '',
+      server: stored.server === 'dev' ? 'dev' : 'production',
       compareRounding: Object.fromEntries(
         Object.entries(stored.compareRounding ?? {}).filter(([, unit]) => (PRICE_UNITS as readonly number[]).includes(unit)),
       ),
@@ -133,12 +138,24 @@ export function loadWorkspace(): Workspace {
   }
 }
 
-/** Persist the workspace. Returns false when the browser refused the write. */
-export function saveWorkspace(workspace: Workspace): boolean {
+/**
+ * Persist the workspace in this browser. Returns false when the browser refused the write.
+ *
+ * `scope: 'pending'` — when the shared database is live — keeps only what the
+ * database does not have yet (unsynced drafts and comparisons) plus local
+ * preferences; everything else is loaded from the database on open, so every
+ * viewer sees the latest and the browser's ~5 MB limit is never the bottleneck.
+ * `scope: 'all'` keeps everything, for when there is no shared database.
+ */
+export function saveWorkspace(workspace: Workspace, scope: 'all' | 'pending' = 'all'): boolean {
   try {
+    const keep = (key: string, dirty: Record<string, true>) => scope === 'all' || !!dirty[key];
+    const pick = <V,>(record: Record<string, V>, dirty: Record<string, true>) =>
+      Object.fromEntries(Object.entries(record).filter(([key]) => keep(key, dirty)));
+
     // Row ids are session-local; storing them would only bloat the payload.
     const drafts = Object.fromEntries(
-      Object.entries(workspace.drafts).map(([slug, d]) => [
+      Object.entries(pick(workspace.drafts, workspace.dirty)).map(([slug, d]) => [
         slug,
         {
           updatedAt: d.updatedAt,
@@ -150,12 +167,57 @@ export function saveWorkspace(workspace: Workspace): boolean {
         },
       ]),
     );
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...workspace, drafts }));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...workspace,
+        drafts,
+        snapshots: pick(workspace.snapshots, workspace.dirtySnapshots),
+        // A version only means something next to the draft it belongs to.
+        versions: scope === 'all' ? workspace.versions : pick(workspace.versions, workspace.dirty),
+      }),
+    );
     return true;
   } catch {
     return false;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Shared settings                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Settings everyone shares — rate precision and each price list's comparison
+ * rounding — stored as one record beside the snapshots (last write wins).
+ * Your name stays in this browser.
+ */
+export const SETTINGS_KEY = 'workspace-settings';
+
+export function settingsRecord(workspace: Workspace): ProductionSnapshot {
+  const now = new Date().toISOString();
+  return {
+    fetchedAt: now,
+    savedAt: now,
+    quotes: {},
+    settings: { options: workspace.options, compareRounding: workspace.compareRounding },
+  };
+}
+
+/** Change shared settings: apply them, and queue the settings record for the database. */
+export function withSettings(
+  workspace: Workspace,
+  change: Partial<Pick<Workspace, 'options' | 'compareRounding'>>,
+): Workspace {
+  const next = { ...workspace, ...change };
+  return {
+    ...next,
+    snapshots: { ...next.snapshots, [SETTINGS_KEY]: settingsRecord(next) },
+    dirtySnapshots: { ...next.dirtySnapshots, [SETTINGS_KEY]: true },
+  };
+}
+
+const isKnownKey = (key: string) => key === SETTINGS_KEY || !!findPriceList(listKeyOf(key));
 
 /** True when no row holds anything — such a sheet is not worth saving as a draft. */
 export function isBlankSheet(sheet: SheetState): boolean {
@@ -220,11 +282,16 @@ export interface ProductStatus extends Omit<DraftStats, 'rows' | 'prices'> {
   pricingName: string | null;
   /** Null until production prices have been fetched for this product. */
   compare: CompareSummary | null;
+  /** The same against the Studio Editor; null until its prices have been fetched. */
+  studioCompare: CompareSummary | null;
+  studioComparedAt: string | null;
 }
 
 export function productStatus(workspace: Workspace, slug: string): ProductStatus {
   const draft = workspace.drafts[slug];
-  const snapshot = workspace.snapshots[slug] ?? null;
+  // Comparisons against whichever server is selected.
+  const snapshot = workspace.snapshots[snapshotKey(slug, 'production', workspace.server)] ?? null;
+  const studio = workspace.snapshots[snapshotKey(slug, 'studio', workspace.server)] ?? null;
   const unsynced = !!workspace.dirty[slug];
   if (!draft) {
     return {
@@ -243,13 +310,17 @@ export function productStatus(workspace: Workspace, slug: string): ProductStatus
       comparedAt: snapshot?.fetchedAt ?? null,
       pricingName: null,
       compare: null,
+      studioCompare: null,
+      studioComparedAt: studio?.fetchedAt ?? null,
     };
   }
 
   const stats = draftStats(draft.sheet);
-  const comparison = snapshot
-    ? compareDraft(parseSheet(draft.sheet), snapshot, { roundTo: workspace.compareRounding[slug] ?? 1 })
-    : null;
+  const parsed = snapshot || studio ? parseSheet(draft.sheet) : null;
+  const roundTo = workspace.compareRounding[slug] ?? 1;
+  const comparison = snapshot && parsed ? compareDraft(parsed, snapshot, { roundTo }) : null;
+  const studioComparison =
+    studio && parsed ? compareDraft(parsed, studio, { roundTo, adjust: STUDIO_ADJUSTMENT }) : null;
   return {
     hasDraft: true,
     ...stats,
@@ -260,6 +331,8 @@ export function productStatus(workspace: Workspace, slug: string): ProductStatus
     comparedAt: snapshot?.fetchedAt ?? null,
     pricingName: comparison?.pricingName ?? null,
     compare: comparison && comparison.summary.compared > 0 ? comparison.summary : null,
+    studioCompare: studioComparison && studioComparison.summary.compared > 0 ? studioComparison.summary : null,
+    studioComparedAt: studio?.fetchedAt ?? null,
   };
 }
 
@@ -267,16 +340,30 @@ export function productStatus(workspace: Workspace, slug: string): ProductStatus
 /* Merging what the server has                                         */
 /* ------------------------------------------------------------------ */
 
-/** Studio Editor comparisons are stored beside the normal ones, under `<key>@studio`. */
-export const STUDIO_SUFFIX = '@studio';
+/** What a comparison is made against: normal prices or the Studio Editor's. */
+export type CompareMode = 'production' | 'studio';
 
-export function studioKey(listKey: string): string {
-  return `${listKey}${STUDIO_SUFFIX}`;
+/**
+ * Where a list's comparison is stored. Each server and mode gets its own
+ * snapshot, so dev and production results never mix:
+ *
+ *   production server   <key>          <key>@studio
+ *   dev server          <key>@dev      <key>@dev-studio
+ */
+export function snapshotKey(listKey: string, mode: CompareMode, server: Server = 'production'): string {
+  const suffix = server === 'dev' ? (mode === 'studio' ? '@dev-studio' : '@dev') : mode === 'studio' ? '@studio' : '';
+  return `${listKey}${suffix}`;
 }
 
-/** The price list a stored key belongs to (a studio snapshot key maps to its list). */
+/** The production server's Studio Editor snapshot key. */
+export function studioKey(listKey: string): string {
+  return snapshotKey(listKey, 'studio');
+}
+
+/** The price list a stored key belongs to (any snapshot key maps to its list). */
 export function listKeyOf(key: string): string {
-  return key.endsWith(STUDIO_SUFFIX) ? key.slice(0, -STUDIO_SUFFIX.length) : key;
+  const at = key.indexOf('@');
+  return at === -1 ? key : key.slice(0, at);
 }
 
 /** A server copy waiting on the user: newer than the draft on screen, or one that beat our save. */
@@ -310,7 +397,7 @@ export function staleSlugs(
   for (const [slug, stamp] of Object.entries(index.snapshotStamps)) {
     if (!workspace.dirtySnapshots[slug] && stamp > snapshotStamp(workspace.snapshots[slug])) out.add(slug);
   }
-  return [...out].filter((slug) => findPriceList(listKeyOf(slug)));
+  return [...out].filter(isKnownKey);
 }
 
 /**
@@ -326,7 +413,7 @@ export function mergeRemote(
   workspace: Workspace,
   remote: RemoteWorkspace,
   options: { slugs?: string[]; holdSlug?: string | null } = {},
-): { workspace: Workspace; held: Record<string, HeldDraft> } {
+): { workspace: Workspace; held: Record<string, HeldDraft>; replacedHeld: boolean } {
   const covered =
     options.slugs ??
     [...new Set([...Object.keys(remote.versions), ...Object.keys(remote.drafts), ...Object.keys(workspace.versions)])];
@@ -335,6 +422,8 @@ export function mergeRemote(
   const dirty = { ...workspace.dirty };
   const snapshots = { ...workspace.snapshots };
   const held: Record<string, HeldDraft> = {};
+  /** True when the product on screen had nothing local, so its server copy was applied directly. */
+  let replacedHeld = false;
   let changed = false;
 
   for (const slug of covered) {
@@ -352,23 +441,41 @@ export function mergeRemote(
     }
 
     const incoming = remote.drafts[slug] ?? null;
-    if (slug === options.holdSlug) {
+    // Only hold back an update when there is a local draft it would replace;
+    // a product showing nothing yet (first load) simply gets the server copy.
+    if (slug === options.holdSlug && drafts[slug]) {
       held[slug] = { draft: incoming, version: remoteVersion };
       continue;
     }
+    if (slug === options.holdSlug) replacedHeld = true;
     if (incoming) drafts[slug] = draftFromRemote(incoming);
     else delete drafts[slug];
     versions[slug] = remoteVersion;
     changed = true;
   }
 
+  let shared: Pick<Workspace, 'options' | 'compareRounding'> | null = null;
   for (const [slug, snapshot] of Object.entries(remote.snapshots)) {
-    if (!findPriceList(listKeyOf(slug)) || workspace.dirtySnapshots[slug]) continue;
+    if (!isKnownKey(slug) || workspace.dirtySnapshots[slug]) continue;
     if (snapshotStamp(snapshot) > snapshotStamp(snapshots[slug])) {
       snapshots[slug] = snapshot;
       changed = true;
+      if (slug === SETTINGS_KEY && snapshot.settings) {
+        shared = {
+          options: { ...DEFAULT_ENGINE_OPTIONS, ...(snapshot.settings.options as Partial<EngineOptions>) },
+          compareRounding: Object.fromEntries(
+            Object.entries(snapshot.settings.compareRounding ?? {}).filter(([, unit]) =>
+              (PRICE_UNITS as readonly number[]).includes(unit),
+            ),
+          ) as Record<string, PriceUnit>,
+        };
+      }
     }
   }
 
-  return { workspace: changed ? { ...workspace, drafts, versions, dirty, snapshots } : workspace, held };
+  return {
+    workspace: changed ? { ...workspace, ...(shared ?? {}), drafts, versions, dirty, snapshots } : workspace,
+    held,
+    replacedHeld,
+  };
 }

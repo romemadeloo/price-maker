@@ -26,14 +26,14 @@ import { parseDelimited } from '../lib/parse';
 import { CATEGORIES, priceListName, productUrl, type PriceList } from '../lib/products';
 import Swatches from './Swatches';
 import ProductThumb from './ProductThumb';
-import { compareDraft, STUDIO_ADJUSTMENT, type ProductionSnapshot } from '../lib/production';
+import { compareDraft, STUDIO_ADJUSTMENT, type ProductionSnapshot, type Server } from '../lib/production';
 import { timeAgo } from '../lib/format';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { DEFAULT_QUANTITIES, emptySheet, matrixToSheet, nextRowId } from '../state/sheetReducer';
 import { historyReducer, initHistory } from '../state/history';
 import { buildSampleSheet } from '../state/sampleData';
 import type { EngineOptions, SheetState } from '../types';
-import type { HeldDraft } from '../state/workspace';
+import type { CompareMode, HeldDraft } from '../state/workspace';
 import type { PriceUnit } from '../lib/calculator';
 
 export type Tab = 'table' | 'rates' | 'calculator' | 'validation' | 'csv' | 'compare' | 'studio';
@@ -73,6 +73,12 @@ interface Props {
   /** Production's Studio Editor prices for this list, compared on their own tab. */
   studioSnapshot: ProductionSnapshot | null;
   onStudioSnapshot: (snapshot: ProductionSnapshot) => void;
+  /** Which musticker server the comparisons are made against. */
+  server: Server;
+  onServer: (server: Server) => void;
+  /** Any comparison's snapshot, on either server, and a way to save one. */
+  snapshotFor: (mode: CompareMode, server: Server) => ProductionSnapshot | null;
+  onSnapshotFor: (mode: CompareMode, server: Server, snapshot: ProductionSnapshot) => void;
   /** Won unit drafted prices are rounded to before comparing; 1 = exact. */
   compareRounding: PriceUnit;
   onCompareRounding: (unit: PriceUnit) => void;
@@ -102,6 +108,10 @@ export default function ProductWorkspace({
   onSnapshot,
   studioSnapshot,
   onStudioSnapshot,
+  server,
+  onServer,
+  snapshotFor,
+  onSnapshotFor,
   compareRounding,
   onCompareRounding,
   options,
@@ -148,6 +158,16 @@ export default function ProductWorkspace({
     const s = compareDraft(result.parsed, studioSnapshot, { roundTo: compareRounding, adjust: STUDIO_ADJUSTMENT }).summary;
     return s.compared > 0 ? s.higher + s.lower : null;
   }, [result.parsed, studioSnapshot, compareRounding]);
+
+  const otherServer: Server = server === 'dev' ? 'production' : 'dev';
+  const onPriceSnapshotFor = useCallback(
+    (srv: Server, snap: ProductionSnapshot) => onSnapshotFor('production', srv, snap),
+    [onSnapshotFor],
+  );
+  const onStudioSnapshotFor = useCallback(
+    (srv: Server, snap: ProductionSnapshot) => onSnapshotFor('studio', srv, snap),
+    [onSnapshotFor],
+  );
 
   const goToCell = useCallback(
     (rowIndex: number, colIndex: number) => {
@@ -401,6 +421,10 @@ export default function ProductWorkspace({
             options={options}
             snapshot={snapshot}
             onSnapshot={onSnapshot}
+            server={server}
+            onServer={onServer}
+            otherSnapshot={snapshotFor('production', otherServer)}
+            onSnapshotFor={onPriceSnapshotFor}
             rounding={compareRounding}
             onRounding={onCompareRounding}
             onGoToCell={goToCell}
@@ -416,6 +440,10 @@ export default function ProductWorkspace({
             options={options}
             snapshot={studioSnapshot}
             onSnapshot={onStudioSnapshot}
+            server={server}
+            onServer={onServer}
+            otherSnapshot={snapshotFor('studio', otherServer)}
+            onSnapshotFor={onStudioSnapshotFor}
             rounding={compareRounding}
             onRounding={onCompareRounding}
             onGoToCell={goToCell}

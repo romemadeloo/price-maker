@@ -17,6 +17,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/musticker-dev/:path*",
+      "destination": "https://dev-static-1-api.musticker.com/index.php/sys/kr/:path*"
+    },
+    {
       "source": "/api/musticker/:path*",
       "destination": "https://api.musticker.com/index.php/sys/kr/:path*"
     }

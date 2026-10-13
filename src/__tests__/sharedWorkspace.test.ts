@@ -2,7 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { handleWorkspace } from '../../api/_lib/handler';
 import { memoryStore } from '../../api/_lib/store';
 import type { RemoteWorkspace } from '../lib/sync';
-import { emptyWorkspace, mergeRemote, staleSlugs, type Workspace } from '../state/workspace';
+import {
+  emptyWorkspace,
+  listKeyOf,
+  mergeRemote,
+  saveWorkspace,
+  SETTINGS_KEY,
+  snapshotKey,
+  staleSlugs,
+  withSettings,
+  type Workspace,
+} from '../state/workspace';
 import type { SheetState } from '../types';
 
 const SHEET = {
@@ -83,6 +93,15 @@ describe('shared workspace API', () => {
     });
     const full = await call('GET', '?slugs=die-cut-sticker');
     expect(full.body.snapshots['die-cut-sticker']).toEqual(snapshot);
+  });
+
+  it('keeps dev-server and Studio Editor prices under their own keys', async () => {
+    const { call } = api();
+    const snapshot = { fetchedAt: 'a', savedAt: 'b', quotes: {} };
+    for (const key of ['die-cut-sticker@studio', 'die-cut-sticker@dev', 'vinyl-lettering~black@dev-studio']) {
+      expect((await call('PUT', `?slug=${encodeURIComponent(key)}&kind=snapshot`, snapshot)).status).toBe(200);
+    }
+    expect((await call('PUT', '?slug=die-cut-sticker@staging&kind=snapshot', snapshot)).status).toBe(400);
   });
 
   it('rejects unknown products and malformed sheets', async () => {
@@ -207,5 +226,86 @@ describe('merging the shared workspace into the local one', () => {
     });
     // square changed, clear is new, circle has a newer snapshot; oval is ours to push.
     expect(stale.sort()).toEqual(['circle-sticker', 'clear-sticker', 'square-sticker']);
+  });
+});
+
+describe('the database is the source of truth', () => {
+  const memory = new Map<string, string>();
+  const fakeStorage = {
+    getItem: (k: string) => memory.get(k) ?? null,
+    setItem: (k: string, v: string) => void memory.set(k, v),
+    removeItem: (k: string) => void memory.delete(k),
+    clear: () => memory.clear(),
+    key: () => null,
+    length: 0,
+  };
+  const stored = () => JSON.parse(memory.get('pricer-maker:workspace:v1') ?? '{}');
+
+  it('keeps only unshared work in the browser when the database is live', () => {
+    (globalThis as { localStorage?: unknown }).localStorage = fakeStorage;
+    const ws = local({
+      drafts: {
+        'circle-sticker': { sheet: LOCAL_SHEET, updatedAt: '', updatedBy: null },
+        'square-sticker': { sheet: LOCAL_SHEET, updatedAt: '', updatedBy: null },
+      },
+      versions: { 'circle-sticker': 3, 'square-sticker': 5 },
+      dirty: { 'square-sticker': true },
+      snapshots: {
+        'circle-sticker': { fetchedAt: 'a', quotes: {} },
+        'circle-sticker@studio': { fetchedAt: 'b', quotes: {} },
+      },
+      dirtySnapshots: { 'circle-sticker@studio': true },
+      userName: 'Rome',
+    });
+
+    expect(saveWorkspace(ws, 'pending')).toBe(true);
+    expect(Object.keys(stored().drafts)).toEqual(['square-sticker']);
+    expect(stored().versions).toEqual({ 'square-sticker': 5 });
+    expect(Object.keys(stored().snapshots)).toEqual(['circle-sticker@studio']);
+    expect(stored().userName).toBe('Rome');
+
+    expect(saveWorkspace(ws, 'all')).toBe(true);
+    expect(Object.keys(stored().drafts).sort()).toEqual(['circle-sticker', 'square-sticker']);
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+
+  it('shares rounding and precision as one settings record', () => {
+    const changed = withSettings(local({}), { compareRounding: { 'circle-sticker': 100 } });
+    expect(changed.dirtySnapshots[SETTINGS_KEY]).toBe(true);
+    expect(changed.snapshots[SETTINGS_KEY].settings?.compareRounding).toEqual({ 'circle-sticker': 100 });
+
+    // Another viewer picks it up.
+    const elsewhere = mergeRemote(local({}), remote({ snapshots: { [SETTINGS_KEY]: changed.snapshots[SETTINGS_KEY] } })).workspace;
+    expect(elsewhere.compareRounding).toEqual({ 'circle-sticker': 100 });
+
+    // …unless they have an unshared change of their own.
+    const busy = withSettings(local({}), { compareRounding: { 'circle-sticker': 10 } });
+    const kept = mergeRemote(busy, remote({ snapshots: { [SETTINGS_KEY]: changed.snapshots[SETTINGS_KEY] } })).workspace;
+    expect(kept.compareRounding).toEqual({ 'circle-sticker': 10 });
+  });
+
+  it('fills in the product on screen directly when it has nothing locally yet', () => {
+    const { workspace, held, replacedHeld } = mergeRemote(
+      local({}),
+      remote({ versions: { 'circle-sticker': 2 }, drafts: { 'circle-sticker': theirs('A', 2) } }),
+      { holdSlug: 'circle-sticker' },
+    );
+    expect(held).toEqual({});
+    expect(replacedHeld).toBe(true);
+    expect(workspace.drafts['circle-sticker'].updatedBy).toBe('A');
+  });
+});
+
+describe('snapshot keys per server', () => {
+  it('names each comparison so production and dev never mix', () => {
+    expect(snapshotKey('die-cut-sticker', 'production')).toBe('die-cut-sticker');
+    expect(snapshotKey('die-cut-sticker', 'studio')).toBe('die-cut-sticker@studio');
+    expect(snapshotKey('die-cut-sticker', 'production', 'dev')).toBe('die-cut-sticker@dev');
+    expect(snapshotKey('vinyl-lettering~black', 'studio', 'dev')).toBe('vinyl-lettering~black@dev-studio');
+  });
+
+  it('finds the price list a key belongs to', () => {
+    expect(listKeyOf('vinyl-lettering~black@dev-studio')).toBe('vinyl-lettering~black');
+    expect(listKeyOf('die-cut-sticker')).toBe('die-cut-sticker');
   });
 });

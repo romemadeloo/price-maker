@@ -8,6 +8,8 @@ export const USER_NAME_INPUT_ID = 'pricer-user-name';
 interface Props {
   sync: CloudSync;
   browserSaved: boolean;
+  /** Changes not in the shared database yet. */
+  pendingCount: number;
   userName: string;
   setUserName: (name: string) => void;
   options: EngineOptions;
@@ -18,10 +20,10 @@ interface Props {
  * The settings that apply everywhere — who you are, rate precision, and
  * whether drafts are shared — in a slim bar across the top of every page.
  */
-export default function TopBar({ sync, browserSaved, userName, setUserName, options, setOptions }: Props) {
+export default function TopBar({ sync, browserSaved, pendingCount, userName, setUserName, options, setOptions }: Props) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 px-4 pt-4 sm:px-7">
-      <SyncStatus sync={sync} browserSaved={browserSaved} />
+      <SyncStatus sync={sync} browserSaved={browserSaved} pendingCount={pendingCount} />
 
       <label
         className="flex items-center gap-2 rounded-full bg-white py-1 pl-3.5 pr-1 text-xs text-slate-500 shadow-sm ring-1 ring-slate-200/70"
@@ -65,7 +67,7 @@ export default function TopBar({ sync, browserSaved, userName, setUserName, opti
 
 const SYNC_LABEL: Record<CloudSync['status'], { dot: string; text: string }> = {
   connecting: { dot: 'bg-slate-300 animate-pulse', text: 'Connecting…' },
-  synced: { dot: 'bg-emerald-500', text: 'Shared with everyone' },
+  synced: { dot: 'bg-emerald-500', text: 'Saved to the shared database' },
   saving: { dot: 'bg-brand-500 animate-pulse', text: 'Saving…' },
   offline: { dot: 'bg-amber-400', text: 'Offline — saved here' },
   'not-configured': { dot: 'bg-amber-400', text: 'This browser only — shared storage not set up' },
@@ -73,7 +75,7 @@ const SYNC_LABEL: Record<CloudSync['status'], { dot: string; text: string }> = {
   error: { dot: 'bg-red-500', text: 'Sharing unavailable — saved here' },
 };
 
-function SyncStatus({ sync, browserSaved }: { sync: CloudSync; browserSaved: boolean }) {
+function SyncStatus({ sync, browserSaved, pendingCount }: { sync: CloudSync; browserSaved: boolean; pendingCount: number }) {
   const [passcode, setPasscode] = useState('');
   const label = SYNC_LABEL[sync.status];
 
@@ -94,7 +96,20 @@ function SyncStatus({ sync, browserSaved }: { sync: CloudSync; browserSaved: boo
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${label.dot}`} />
         {label.text}
-        {!browserSaved && <span className="text-amber-600">· not kept in this browser</span>}
+        {pendingCount > 0 && sync.status !== 'saving' && (
+          <span className="text-slate-400" title="Changes waiting to reach the shared database">
+            · {pendingCount} waiting to save
+          </span>
+        )}
+        {/* Only worth saying when there is unsaved work the browser could not back up. */}
+        {!browserSaved && pendingCount > 0 && (
+          <span
+            className="text-amber-600"
+            title="These changes are not in the shared database yet, and this browser could not keep a backup copy (its storage is full). They are kept while this tab stays open."
+          >
+            · no local backup
+          </span>
+        )}
       </button>
       {sync.status === 'locked' && (
         <form onSubmit={submit} className="flex gap-1.5">

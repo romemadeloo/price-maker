@@ -2,17 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import NavRail, { type RailTarget } from './components/NavRail';
 import TopBar from './components/TopBar';
+import { useBulkCompare } from './hooks/useBulkCompare';
 import Overview from './components/Overview';
 import ProductWorkspace, { type Tab } from './components/ProductWorkspace';
 import { findPriceList, PRICE_LISTS } from './lib/products';
-import type { ProductionSnapshot } from './lib/production';
+import type { ProductionSnapshot, Server } from './lib/production';
 import { useCloudSync } from './hooks/useCloudSync';
 import {
   isBlankSheet,
   loadWorkspace,
   productStatus,
   saveWorkspace,
-  studioKey,
+  snapshotKey,
+  withSettings,
+  type CompareMode,
   type ProductStatus,
   type Workspace,
 } from './state/workspace';
@@ -28,20 +31,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('table');
   const [navOpen, setNavOpen] = useState(false);
   const [saved, setSaved] = useState(true);
-
-  useEffect(() => {
-    const id = setTimeout(() => setSaved(saveWorkspace(workspace)), SAVE_DEBOUNCE_MS);
-    return () => clearTimeout(id);
-  }, [workspace]);
-
-  // Never lose the last debounce window to a reload.
   const latest = useRef(workspace);
   latest.current = workspace;
-  useEffect(() => {
-    const flush = () => saveWorkspace(latest.current);
-    window.addEventListener('beforeunload', flush);
-    return () => window.removeEventListener('beforeunload', flush);
-  }, []);
 
   // The active price list: a product, or one color group of it.
   const list = findPriceList(workspace.activeSlug) ?? PRICE_LISTS[0];
@@ -64,6 +55,32 @@ export default function App() {
     holdSlug: view === 'product' ? slug : null,
     onReplace,
   });
+
+  /**
+   * The browser copy. With the shared database live it holds only what the
+   * database does not have yet (and your name); everything else loads from the
+   * database, so every viewer sees the latest. Without a database it holds all.
+   */
+  const shared = sync.status === 'synced' || sync.status === 'saving';
+  const scopeRef = useRef<'all' | 'pending'>('all');
+  scopeRef.current = shared ? 'pending' : 'all';
+  const persist = useCallback((ws: Workspace) => {
+    // Too big for the browser in full? The unshared part is what matters.
+    const ok = saveWorkspace(ws, scopeRef.current) || (scopeRef.current === 'all' && saveWorkspace(ws, 'pending'));
+    setSaved(ok);
+    return ok;
+  }, []);
+  useEffect(() => {
+    const id = setTimeout(() => persist(workspace), SAVE_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [workspace, shared, persist]);
+  // Never lose the last debounce window to a reload.
+  useEffect(() => {
+    const flush = () => persist(latest.current);
+    window.addEventListener('beforeunload', flush);
+    return () => window.removeEventListener('beforeunload', flush);
+  }, [persist]);
+  const pendingCount = Object.keys(workspace.dirty).length + Object.keys(workspace.dirtySnapshots).length;
 
   const saveDraft = useCallback((target: string, revision: number, sheet: SheetState) => {
     if ((revisionRef.current[target] ?? 0) !== revision) return;
@@ -103,17 +120,38 @@ export default function App() {
       })),
     [],
   );
-  const onSnapshot = useCallback((snapshot: ProductionSnapshot) => saveSnapshot(slug, snapshot), [saveSnapshot, slug]);
+  // Fetched prices are stored per server: production's and dev's never mix.
+  const server = workspace.server;
+  const onSnapshot = useCallback(
+    (snapshot: ProductionSnapshot) => saveSnapshot(snapshotKey(slug, 'production', server), snapshot),
+    [saveSnapshot, slug, server],
+  );
   const onStudioSnapshot = useCallback(
-    (snapshot: ProductionSnapshot) => saveSnapshot(studioKey(slug), snapshot),
+    (snapshot: ProductionSnapshot) => saveSnapshot(snapshotKey(slug, 'studio', server), snapshot),
+    [saveSnapshot, slug, server],
+  );
+  /** Either comparison on either server — the compare tabs fetch and summarise both. */
+  const snapshotFor = useCallback(
+    (mode: CompareMode, srv: Server) => workspace.snapshots[snapshotKey(slug, mode, srv)] ?? null,
+    [workspace.snapshots, slug],
+  );
+  const onSnapshotFor = useCallback(
+    (mode: CompareMode, srv: Server, snapshot: ProductionSnapshot) => saveSnapshot(snapshotKey(slug, mode, srv), snapshot),
     [saveSnapshot, slug],
   );
-  const setOptions = useCallback((options: EngineOptions) => setWorkspace((ws) => ({ ...ws, options })), []);
+  const setServer = useCallback((next: Server) => setWorkspace((ws) => ({ ...ws, server: next })), []);
+  // Shared with everyone through the database (see withSettings).
+  const setOptions = useCallback((options: EngineOptions) => setWorkspace((ws) => withSettings(ws, { options })), []);
   const setUserName = useCallback((userName: string) => setWorkspace((ws) => ({ ...ws, userName })), []);
   const setCompareRounding = useCallback(
     (unit: PriceUnit) =>
-      setWorkspace((ws) => ({ ...ws, compareRounding: { ...ws.compareRounding, [slug]: unit } })),
+      setWorkspace((ws) => withSettings(ws, { compareRounding: { ...ws.compareRounding, [slug]: unit } })),
     [slug],
+  );
+
+  const bulk = useBulkCompare(
+    useCallback(() => latest.current, []),
+    saveSnapshot,
   );
 
   const selectProduct = useCallback((next: string) => {
@@ -128,7 +166,7 @@ export default function App() {
     return out;
     // Options, names and the active slug do not affect statuses; skip recomputing on them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.drafts, workspace.snapshots, workspace.dirty, workspace.compareRounding]);
+  }, [workspace.drafts, workspace.snapshots, workspace.dirty, workspace.compareRounding, workspace.server]);
 
   const draft = workspace.drafts[slug];
 
@@ -168,6 +206,7 @@ export default function App() {
         <TopBar
           sync={sync}
           browserSaved={saved}
+          pendingCount={pendingCount}
           userName={workspace.userName}
           setUserName={setUserName}
           options={workspace.options}
@@ -185,6 +224,9 @@ export default function App() {
               setTab('compare');
             }}
             onOpenNav={() => setNavOpen(true)}
+            bulk={bulk}
+            server={server}
+            onServer={setServer}
           />
         ) : (
           <ProductWorkspace
@@ -200,9 +242,13 @@ export default function App() {
             onTakeTheirs={() => sync.takeTheirs(slug)}
             onDismissIncoming={() => sync.dismissIncoming(slug)}
             onSaveDraft={onSaveDraft}
-            snapshot={workspace.snapshots[slug] ?? null}
+            snapshot={workspace.snapshots[snapshotKey(slug, 'production', server)] ?? null}
             onSnapshot={onSnapshot}
-            studioSnapshot={workspace.snapshots[studioKey(slug)] ?? null}
+            studioSnapshot={workspace.snapshots[snapshotKey(slug, 'studio', server)] ?? null}
+            server={server}
+            onServer={setServer}
+            snapshotFor={snapshotFor}
+            onSnapshotFor={onSnapshotFor}
             onStudioSnapshot={onStudioSnapshot}
             compareRounding={workspace.compareRounding[slug] ?? 1}
             onCompareRounding={setCompareRounding}

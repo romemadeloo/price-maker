@@ -18,6 +18,23 @@ import type { ParsedTable } from '../types';
 
 export const PRODUCTION_API_BASE = '/api/musticker';
 
+/**
+ * Which musticker server to quote: the live site, or the dev/staging one
+ * (dev-static-1-api.musticker.com), where new price books land before they go
+ * live. Both are reached through the same-origin proxy.
+ */
+export type Server = 'production' | 'dev';
+
+export const API_BASES: Record<Server, string> = {
+  production: PRODUCTION_API_BASE,
+  dev: '/api/musticker-dev',
+};
+
+export const SERVER_HOSTS: Record<Server, string> = {
+  production: 'api.musticker.com',
+  dev: 'dev-static-1-api.musticker.com',
+};
+
 export interface ProductionPrice {
   quantity: number;
   price: number;
@@ -71,6 +88,11 @@ export type QuoteEntry = { ok: true; quote: ProductionQuote } | { ok: false; err
 /** Everything fetched for one product, persisted alongside its draft. */
 export interface ProductionSnapshot {
   fetchedAt: string;
+  /**
+   * Only on the shared-settings record (see SETTINGS_KEY in state/workspace),
+   * which rides on snapshot storage: settings everyone shares.
+   */
+  settings?: { options: unknown; compareRounding: Record<string, number> };
   /** When this snapshot was last written (a merge keeps fetchedAt). Decides which copy is newer when syncing. */
   savedAt?: string;
   /** Keyed by `sizeKey(width, height)`. */
@@ -87,10 +109,11 @@ export function quotationUrl(
   height: number,
   quantity?: number,
   extra: Record<string, string> = {},
+  server: Server = 'production',
 ): string {
   const params = new URLSearchParams({ width: String(width), height: String(height), ...extra });
   if (quantity != null) params.set('quantity', String(quantity));
-  return `${PRODUCTION_API_BASE}/pricing/quotation/${encodeURIComponent(slug)}?${params}`;
+  return `${API_BASES[server]}/pricing/quotation/${encodeURIComponent(slug)}?${params}`;
 }
 
 function num(value: unknown): number | null {
@@ -161,16 +184,16 @@ export async function fetchProductionQuote(
   width: number,
   height: number,
   /** `params`: a variant's extra options, e.g. { color_id: '11' }. */
-  options: { quantity?: number; signal?: AbortSignal; params?: Record<string, string> } = {},
+  options: { quantity?: number; signal?: AbortSignal; params?: Record<string, string>; server?: Server } = {},
 ): Promise<ProductionQuote> {
   let response: Response;
   try {
-    response = await fetch(quotationUrl(slug, width, height, options.quantity, options.params), {
+    response = await fetch(quotationUrl(slug, width, height, options.quantity, options.params, options.server), {
       signal: options.signal,
     });
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw err;
-    throw new Error('Could not reach the production API.');
+    throw new Error(`Could not reach ${SERVER_HOSTS[options.server ?? 'production']}.`);
   }
 
   let json: unknown;
@@ -180,6 +203,84 @@ export async function fetchProductionQuote(
     throw new Error(`Production API answered ${response.status} without JSON.`);
   }
   return parseQuotationResponse(json, width, height);
+}
+
+export interface ServerDiff {
+  /** Prices both servers quoted (same size, same quantity). */
+  compared: number;
+  /** Of those, how many differ. */
+  differ: number;
+  /** The biggest gap, dev minus production. */
+  largest: { sizeKey: string; quantity: number; production: number; dev: number } | null;
+}
+
+/**
+ * Line up two fetched snapshots of the same price list — production's and
+ * the dev server's — price by price, to see what dev would change.
+ */
+export function compareServers(production: ProductionSnapshot, dev: ProductionSnapshot): ServerDiff {
+  let compared = 0;
+  let differ = 0;
+  let largest: ServerDiff['largest'] = null;
+  for (const [key, p] of Object.entries(production.quotes)) {
+    const d = dev.quotes[key];
+    if (!p.ok || !d?.ok) continue;
+    const devPrices = new Map(d.quote.prices.map((x) => [x.quantity, x.price]));
+    for (const { quantity, price } of p.quote.prices) {
+      const other = devPrices.get(quantity);
+      if (other == null) continue;
+      compared += 1;
+      if (other === price) continue;
+      differ += 1;
+      if (!largest || Math.abs(other - price) > Math.abs(largest.dev - largest.production)) {
+        largest = { sizeKey: key, quantity, production: price, dev: other };
+      }
+    }
+  }
+  return { compared, differ, largest };
+}
+
+/**
+ * Quote every size with a few requests in flight at once and gather the
+ * answers into a snapshot. Refusals are kept per size. Resolves to null when
+ * aborted. Used by one price list's Compare tab and by "compare all" alike.
+ */
+export async function fetchSnapshot(
+  slug: string,
+  sizes: { width: number; height: number; key: string }[],
+  options: {
+    params?: Record<string, string>;
+    server?: Server;
+    signal?: AbortSignal;
+    onProgress?: (done: number, total: number) => void;
+    concurrency?: number;
+  } = {},
+): Promise<ProductionSnapshot | null> {
+  const { params, server, signal, onProgress, concurrency = 4 } = options;
+  const quotes: Record<string, QuoteEntry> = {};
+  let next = 0;
+  let done = 0;
+  onProgress?.(0, sizes.length);
+
+  const worker = async () => {
+    while (next < sizes.length && !signal?.aborted) {
+      const size = sizes[next++];
+      try {
+        quotes[size.key] = {
+          ok: true,
+          quote: await fetchProductionQuote(slug, size.width, size.height, { signal, params, server }),
+        };
+      } catch (err) {
+        if (signal?.aborted) return;
+        quotes[size.key] = { ok: false, error: (err as Error).message };
+      }
+      done += 1;
+      onProgress?.(done, sizes.length);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, sizes.length) }, worker));
+  return signal?.aborted ? null : { fetchedAt: new Date().toISOString(), quotes };
 }
 
 /* ------------------------------------------------------------------ */

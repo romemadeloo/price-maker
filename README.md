@@ -235,6 +235,27 @@ if production ever splits a group, it says which colors no longer match. The
 groups are defined in `src/lib/products.ts` (`variants`); the solid group keeps
 the bare `vinyl-lettering` key, the others are `vinyl-lettering~<group>`.
 
+**Compare all** — on the Overview, tick what to *Compare against* — Price
+(prod), Studio Editor (prod), Price (dev), Studio Editor (dev), any mix (all four
+by default, remembered per browser) — then **Compare N price lists × M** fetches
+prices for every drafted list in the selected category (All / Stickers / Roll /
+Sheet), one list after another, with progress and Cancel. Each list's result is
+saved to the database the moment it lands, so a cancelled run keeps what
+finished. *Show* switches the chart between the production and Studio Editor
+comparisons; *Server* between production and dev results.
+
+**Dev server** — every comparison can also run against the staging API,
+`dev-static-1-api.musticker.com` (proxied at `/api/musticker-dev`). The
+*Server: Production | Dev* switch on the Overview and both compare tabs picks
+which one you see and fetch; dev results are stored separately
+(`<key>@dev`, `<key>@dev-studio`) so they never mix with production's, and the
+page shows a **DEV server** chip while it is on — tooltips, columns and notes
+name the source ("Dev ₩1,900", "Dev Studio Editor"). On both compare tabs,
+**Fetch / Refresh prod + dev** quotes every drafted size on both servers at once
+and saves both; the *Draft vs* row under it shows the draft's match rate on each
+(click to switch) and how many prices dev changes compared with production, with
+the largest gap.
+
 **Overview** is one chart over every price list — *Match with production*:
 a bar per list split into draft lower (blue), match (green) and draft higher
 (red), lowest match rate first, then lists drafted but not compared, then lists
@@ -530,9 +551,15 @@ There are no accounts. The deployed app keeps one shared workspace — every
 product's draft and its last production comparison — and everyone who opens
 the URL works in it.
 
-- **Saving.** Edits go to the server about a second after you stop typing.
-  The browser also keeps a copy, so the app opens instantly and anything edited
-  offline is uploaded when the connection returns.
+- **Saving.** Edits go to the database about a second after you stop typing.
+  The database is the one place drafts, comparisons and shared settings live;
+  every viewer loads them from there, so everyone sees the latest. The browser
+  keeps only what has not reached the database yet (plus your name), so edits
+  made offline are uploaded when the connection returns — and the browser's
+  ~5 MB storage limit never gets in the way. Without a database configured, the
+  browser keeps everything instead.
+- **Shared settings.** Rate precision (Rate dp) and each price list's
+  comparison rounding are shared through the database too; your name is not.
 - **Seeing others' changes.** The app checks every 30 seconds while its tab is
   visible, and whenever you come back to it. Other products update quietly; the
   product you have open shows a **Load latest** banner instead of changing
@@ -659,7 +686,7 @@ receives sizes and quantities.
 npm test
 ```
 
-187 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
+190 tests covering the simple case (625 × 10 → ₩2,500 → `0.4`), repeating
 decimals (225 × 30 → ₩5,800), the large precision-sensitive row (366,000 ×
 30,000 → ₩155,793,118), a ~700-combination sweep asserting every exported rate
 rebuilds its price, CSV round-trip on a 2,907-cell table, input normalization,

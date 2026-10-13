@@ -9,15 +9,20 @@ import {
   comparisonToCsv,
   draftSizes,
   fetchProductionQuote,
+  fetchSnapshot,
   type CompareCell,
   type CompareRow,
   adjustPrice,
   STUDIO_ADJUSTMENT,
   STUDIO_PARAMS,
+  SERVER_HOSTS,
+  compareServers,
+  type ServerDiff,
+  type CompareSummary,
   type PriceAdjustment,
+  type Server,
   type ProductionQuote,
   type ProductionSnapshot,
-  type QuoteEntry,
 } from '../lib/production';
 import { calculate, detectPriceUnit, PRICE_UNITS, type PriceUnit } from '../lib/calculator';
 import { downloadCsv } from '../lib/csv';
@@ -40,6 +45,13 @@ interface Props {
   options: EngineOptions;
   snapshot: ProductionSnapshot | null;
   onSnapshot: (snapshot: ProductionSnapshot) => void;
+  /** Which musticker server to quote — the live site or dev/staging — and how to switch. */
+  server: Server;
+  onServer: (server: Server) => void;
+  /** The same comparison's snapshot on the other server, for the production-vs-dev summary. */
+  otherSnapshot: ProductionSnapshot | null;
+  /** Save a fresh snapshot for either server ("Fetch prod + dev"). */
+  onSnapshotFor: (server: Server, snapshot: ProductionSnapshot) => void;
   /** Won unit drafted prices are rounded to before comparing; 1 = exact. */
   rounding: PriceUnit;
   onRounding: (unit: PriceUnit) => void;
@@ -62,6 +74,10 @@ export default function ProductionCompare({
   options,
   snapshot,
   onSnapshot,
+  server,
+  onServer,
+  otherSnapshot,
+  onSnapshotFor,
   rounding,
   onRounding,
   onGoToCell,
@@ -85,7 +101,32 @@ export default function ProductionCompare({
     [result.parsed, snapshot, rounding, studio],
   );
   const missing = useMemo(() => sizes.filter((s) => !snapshot?.quotes[s.key]), [sizes, snapshot]);
-  const { fetchSizes, progress, cancel } = useProductionFetch(product.slug, params, snapshot, onSnapshot);
+  const dev = server === 'dev';
+  const fetchLabel = `Fetch ${dev ? 'dev ' : ''}${studio ? 'Studio Editor' : 'production'} prices`;
+  /** What the drafted prices are compared with, as a column/tooltip label and in a sentence. */
+  const sourceLabel = studio ? (dev ? 'Dev Studio Editor' : 'Studio Editor') : dev ? 'Dev' : 'Production';
+  const against = studio ? (dev ? 'the dev Studio Editor' : 'Studio Editor') : dev ? 'the dev server' : 'production';
+  const { fetchSizes, fetchBoth, progress, cancel } = useProductionFetch(
+    product.slug,
+    params,
+    server,
+    snapshot,
+    onSnapshot,
+    onSnapshotFor,
+  );
+  const otherComparison = useMemo(
+    () =>
+      otherSnapshot
+        ? compareDraft(result.parsed, otherSnapshot, { roundTo: rounding, adjust: studio ? STUDIO_ADJUSTMENT : null })
+        : null,
+    [result.parsed, otherSnapshot, rounding, studio],
+  );
+  const prodSnapshot = dev ? otherSnapshot : snapshot;
+  const devSnapshot = dev ? snapshot : otherSnapshot;
+  const serverDiff = useMemo(
+    () => (prodSnapshot && devSnapshot ? compareServers(prodSnapshot, devSnapshot) : null),
+    [prodSnapshot, devSnapshot],
+  );
 
   const s = comparison.summary;
   const busy = progress != null;
@@ -94,7 +135,7 @@ export default function ProductionCompare({
     const stamp = new Date().toISOString().slice(0, 10);
     downloadCsv(
       comparisonToCsv(comparison),
-      `${priceList.key.replace('~', '-')}-vs-${studio ? 'studio-editor' : 'production'}-${stamp}.csv`,
+      `${priceList.key.replace('~', '-')}-vs-${server === 'dev' ? 'dev-' : ''}${studio ? 'studio-editor' : 'production'}-${stamp}.csv`,
     );
   };
 
@@ -106,7 +147,14 @@ export default function ProductionCompare({
       <section className="card px-4 py-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-xs text-slate-500">
-            <span className="mr-1 text-sm font-bold text-slate-900">{studio ? 'Draft vs Studio Editor' : 'Draft vs production'}</span>
+            <span className="mr-1 text-sm font-bold text-slate-900">
+              {studio ? 'Draft vs Studio Editor' : 'Draft vs production'}
+            </span>
+            {server === 'dev' && (
+              <Chip tone="amber">
+                DEV server · {SERVER_HOSTS.dev}
+              </Chip>
+            )}
             {studio && (
               <Chip tone="violet">
                 {comparison.adjustment
@@ -120,7 +168,10 @@ export default function ProductionCompare({
                 {comparison.pricingId != null && <span className="opacity-60">#{comparison.pricingId}</span>}
               </Chip>
             ) : (
-              <span>live prices from musticker.com{studio ? ' (Studio Editor)' : ''}, per drafted size</span>
+              <span>
+                {dev ? 'prices from the dev server' : 'live prices from musticker.com'}
+                {studio ? ' (Studio Editor)' : ''}, per drafted size
+              </span>
             )}
             {comparison.normalizedNr != null && !studio && <Chip>rounds to ₩{groupDigits(comparison.normalizedNr)}</Chip>}
             {comparison.sheet && (
@@ -132,6 +183,15 @@ export default function ProductionCompare({
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-medium text-slate-500">Server</span>
+            <Seg
+              value={server}
+              onChange={onServer}
+              options={[
+                ['production', 'Production'],
+                ['dev', 'Dev'],
+              ]}
+            />
             {snapshot && (
               <button
                 className={`btn ${spotOpen ? 'btn-primary' : 'btn-default'}`}
@@ -160,10 +220,21 @@ export default function ProductionCompare({
                 Cancel
               </button>
             ) : (
-              <button className="btn btn-primary" onClick={() => fetchSizes(sizes, 'replace')} disabled={sizes.length === 0}>
-                <RefreshIcon width={14} height={14} />
-                {snapshot ? 'Refresh' : studio ? 'Fetch Studio Editor prices' : 'Fetch production prices'}
-              </button>
+              <>
+                <button
+                  className="btn btn-default"
+                  onClick={() => fetchBoth(sizes)}
+                  disabled={sizes.length === 0}
+                  title={`Quote every drafted size on production (${SERVER_HOSTS.production}) and dev (${SERVER_HOSTS.dev}) at once, and save both`}
+                >
+                  <RefreshIcon width={14} height={14} />
+                  {snapshot || otherSnapshot ? 'Refresh' : 'Fetch'} prod + dev
+                </button>
+                <button className="btn btn-primary" onClick={() => fetchSizes(sizes, 'replace')} disabled={sizes.length === 0}>
+                  <RefreshIcon width={14} height={14} />
+                  {snapshot ? `Refresh ${dev ? 'dev' : 'prod'}` : fetchLabel}
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -178,7 +249,13 @@ export default function ProductionCompare({
             label={studio ? 'Round my prices, then −5%' : 'Round my prices'}
           />
           {variant && (
-            <OptionCheck slug={product.slug} variant={variant} size={sizes[0] ?? DEFAULT_CHECK_SIZE} extraParams={studio ? STUDIO_PARAMS : undefined} />
+            <OptionCheck
+              slug={product.slug}
+              variant={variant}
+              size={sizes[0] ?? DEFAULT_CHECK_SIZE}
+              extraParams={studio ? STUDIO_PARAMS : undefined}
+              server={server}
+            />
           )}
           {studio && (
             <span className="text-xs text-slate-400">
@@ -187,6 +264,17 @@ export default function ProductionCompare({
             </span>
           )}
         </div>
+
+        {(snapshot || otherSnapshot) && (
+          <ServerSummary
+            server={server}
+            onServer={onServer}
+            current={snapshot ? comparison.summary : null}
+            other={otherComparison?.summary ?? null}
+            diff={serverDiff}
+            studio={studio}
+          />
+        )}
 
         {busy && (
           <div className="mt-2.5">
@@ -197,7 +285,8 @@ export default function ProductionCompare({
               />
             </div>
             <div className="mt-1 text-[11px] text-slate-500">
-              Quoting {progress.done.toLocaleString()} of {progress.total.toLocaleString()} size(s)…
+              Quoting {progress.done.toLocaleString()} of {progress.total.toLocaleString()} size(s)
+              {progress.both ? ' on production and dev' : dev ? ' on the dev server' : ''}…
             </div>
           </div>
         )}
@@ -210,24 +299,24 @@ export default function ProductionCompare({
         />
       ) : !snapshot ? (
         <EmptyState
-          title={`Compare ${sizes.length.toLocaleString()} size${sizes.length === 1 ? '' : 's'} against ${studio ? 'the Studio Editor' : 'production'}`}
+          title={`Compare ${sizes.length.toLocaleString()} size${sizes.length === 1 ? '' : 's'} against ${studio ? 'the Studio Editor' : 'production'}${dev ? ' on the dev server' : ''}`}
           body={
             studio
-              ? 'Each drafted size is quoted live from the Studio Editor (production’s price −5%, rounded to ₩10). Your draft gets the same discount, then the two are lined up price by price.'
-              : 'Each drafted size is quoted live from musticker.com and lined up against your draft, price by price. Results are stored with this price list’s draft.'
+              ? `Each drafted size is quoted live from the Studio Editor${dev ? ` on ${SERVER_HOSTS.dev}` : ''} (the price −5%, rounded to ₩10). Your draft gets the same discount, then the two are lined up price by price.`
+              : `Each drafted size is quoted live from ${dev ? SERVER_HOSTS.dev : 'musticker.com'} and lined up against your draft, price by price. Results are stored with this price list’s draft.`
           }
           action={
             sizes.length > 0 && !busy ? (
               <button className="btn btn-primary" onClick={() => fetchSizes(sizes, 'replace')}>
                 <RefreshIcon width={14} height={14} />
-                {studio ? 'Fetch Studio Editor prices' : 'Fetch production prices'}
+                {fetchLabel}
               </button>
             ) : null
           }
         />
       ) : (
         <>
-          <StatsStrip comparison={comparison} against={studio ? 'Studio Editor' : 'production'} />
+          <StatsStrip comparison={comparison} against={against} />
           {spotOpen && (
             <SpotCheck
               priceList={priceList}
@@ -235,6 +324,7 @@ export default function ProductionCompare({
               options={options}
               rounding={rounding}
               params={params}
+              server={server}
               adjustment={studio ? (comparison.adjustment ?? STUDIO_ADJUSTMENT) : null}
             />
           )}
@@ -258,7 +348,7 @@ export default function ProductionCompare({
                 <Seg
                   value={measure}
                   onChange={setMeasure}
-                  options={[['won', 'Δ ₩'], ['pct', 'Δ %'], ['draft', 'Draft'], ['prod', 'Production']]}
+                  options={[['won', 'Δ ₩'], ['pct', 'Δ %'], ['draft', 'Draft'], ['prod', sourceLabel]]}
                 />
               )}
               <HeatLegend />
@@ -266,9 +356,9 @@ export default function ProductionCompare({
             </div>
             <div className="min-h-0 flex-1 overflow-auto border-t border-slate-100">
               {view === 'matrix' ? (
-                <Matrix comparison={comparison} filter={filter} measure={measure} onGoToCell={onGoToCell} />
+                <Matrix comparison={comparison} filter={filter} measure={measure} source={sourceLabel} onGoToCell={onGoToCell} />
               ) : (
-                <DiffList comparison={comparison} filter={filter} onGoToCell={onGoToCell} />
+                <DiffList comparison={comparison} filter={filter} source={sourceLabel} against={against} onGoToCell={onGoToCell} />
               )}
             </div>
           </section>
@@ -285,10 +375,12 @@ export default function ProductionCompare({
 function useProductionFetch(
   slug: string,
   params: Record<string, string> | undefined,
+  server: Server,
   snapshot: ProductionSnapshot | null,
   onSnapshot: (s: ProductionSnapshot) => void,
+  onSnapshotFor: (server: Server, s: ProductionSnapshot) => void,
 ) {
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; both?: boolean } | null>(null);
   const controller = useRef<AbortController | null>(null);
 
   useEffect(() => () => controller.current?.abort(), []);
@@ -299,37 +391,52 @@ function useProductionFetch(
       const ctrl = new AbortController();
       controller.current = ctrl;
 
-      const quotes: Record<string, QuoteEntry> = {};
-      let next = 0;
-      let done = 0;
-      setProgress({ done, total: sizes.length });
-
-      const worker = async () => {
-        while (next < sizes.length && !ctrl.signal.aborted) {
-          const size = sizes[next++];
-          try {
-            const quote = await fetchProductionQuote(slug, size.width, size.height, { signal: ctrl.signal, params });
-            quotes[size.key] = { ok: true, quote };
-          } catch (err) {
-            if (ctrl.signal.aborted) return;
-            quotes[size.key] = { ok: false, error: (err as Error).message };
-          }
-          done += 1;
-          setProgress({ done, total: sizes.length });
-        }
-      };
-
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, sizes.length) }, worker));
-      if (ctrl.signal.aborted) return;
+      const fresh = await fetchSnapshot(slug, sizes, {
+        params,
+        server,
+        signal: ctrl.signal,
+        concurrency: CONCURRENCY,
+        onProgress: (done, total) => setProgress({ done, total }),
+      });
+      if (!fresh) return;
 
       onSnapshot(
         mode === 'merge' && snapshot
-          ? { fetchedAt: snapshot.fetchedAt, quotes: { ...snapshot.quotes, ...quotes } }
-          : { fetchedAt: new Date().toISOString(), quotes },
+          ? { fetchedAt: snapshot.fetchedAt, quotes: { ...snapshot.quotes, ...fresh.quotes } }
+          : fresh,
       );
       setProgress(null);
     },
-    [slug, params, snapshot, onSnapshot],
+    [slug, params, server, snapshot, onSnapshot],
+  );
+
+  /** Quote every size on production and dev side by side; each server's result is saved as it lands. */
+  const fetchBoth = useCallback(
+    async (sizes: { width: number; height: number; key: string }[]) => {
+      controller.current?.abort();
+      const ctrl = new AbortController();
+      controller.current = ctrl;
+
+      const done: Record<Server, number> = { production: 0, dev: 0 };
+      const report = () => setProgress({ done: done.production + done.dev, total: sizes.length * 2, both: true });
+      await Promise.all(
+        (['production', 'dev'] as const).map(async (srv) => {
+          const fresh = await fetchSnapshot(slug, sizes, {
+            params,
+            server: srv,
+            signal: ctrl.signal,
+            concurrency: CONCURRENCY,
+            onProgress: (n) => {
+              done[srv] = n;
+              report();
+            },
+          });
+          if (fresh) onSnapshotFor(srv, fresh);
+        }),
+      );
+      if (!ctrl.signal.aborted) setProgress(null);
+    },
+    [slug, params, onSnapshotFor],
   );
 
   const cancel = useCallback(() => {
@@ -337,7 +444,7 @@ function useProductionFetch(
     setProgress(null);
   }, []);
 
-  return { fetchSizes, progress, cancel };
+  return { fetchSizes, fetchBoth, progress, cancel };
 }
 
 /* ------------------------------------------------------------------ */
@@ -406,7 +513,7 @@ function StatsStrip({ comparison, against }: { comparison: ReturnType<typeof com
         </div>
       )}
 
-      <Notes comparison={comparison} />
+      <Notes comparison={comparison} against={against} />
     </section>
   );
 }
@@ -429,20 +536,20 @@ function Stat({ label, value, sub, icon }: { label: string; value: string; sub?:
 }
 
 /** Small notes under the stats: refused sizes, unfetched rows, quantities only one side has. */
-function Notes({ comparison }: { comparison: ReturnType<typeof compareDraft> }) {
+function Notes({ comparison, against }: { comparison: ReturnType<typeof compareDraft>; against: string }) {
   const s = comparison.summary;
   const notes: { warn?: boolean; text: string; title?: string }[] = [];
 
   if (s.rowsFailed > 0) {
     const first = comparison.rows.find((r) => r.state === 'error');
-    notes.push({ warn: true, text: `${s.rowsFailed} size(s) refused by production`, title: first ? `${first.sizeLabel}: ${first.error}` : undefined });
+    notes.push({ warn: true, text: `${s.rowsFailed} size(s) refused by ${against}`, title: first ? `${first.sizeLabel}: ${first.error}` : undefined });
   }
   if (s.rowsNotFetched > 0) notes.push({ text: `${s.rowsNotFetched} row(s) not fetched yet` });
   if (s.rowsWithoutSize > 0) notes.push({ text: `${s.rowsWithoutSize} row(s) without a usable base area` });
-  if (s.notInProduction > 0) notes.push({ text: `${s.notInProduction} price(s) at quantities production doesn't sell` });
+  if (s.notInProduction > 0) notes.push({ text: `${s.notInProduction} price(s) at quantities ${against} doesn't sell` });
   if (comparison.productionOnlyQuantities.length > 0) {
     notes.push({
-      text: `production also sells ${comparison.productionOnlyQuantities.length} quantit${comparison.productionOnlyQuantities.length === 1 ? 'y' : 'ies'} you haven't drafted`,
+      text: `${against} also sells ${comparison.productionOnlyQuantities.length} quantit${comparison.productionOnlyQuantities.length === 1 ? 'y' : 'ies'} you haven't drafted`,
       title: comparison.productionOnlyQuantities.map((q) => groupDigits(q)).join(', '),
     });
   }
@@ -489,11 +596,13 @@ function OptionCheck({
   variant,
   size,
   extraParams,
+  server,
 }: {
   slug: string;
   variant: Variant;
   size: { width: number; height: number };
   extraParams?: Record<string, string>;
+  server: Server;
 }) {
   const [rows, setRows] = useState<OptionQuote[] | null>(null);
   const [nonce, setNonce] = useState(0);
@@ -507,6 +616,7 @@ function OptionCheck({
           const quote = await fetchProductionQuote(slug, size.width, size.height, {
             signal: ctrl.signal,
             params: { ...variant.params, ...(extraParams ?? {}), [variant.param]: String(option.id) },
+            server,
           });
           return { option, quote, error: null };
         } catch (err) {
@@ -517,7 +627,7 @@ function OptionCheck({
       if (!ctrl.signal.aborted) setRows(result);
     });
     return () => ctrl.abort();
-  }, [slug, variant, size.width, size.height, nonce, extraParams]);
+  }, [slug, variant, size.width, size.height, nonce, extraParams, server]);
 
   const reference = rows?.find((r) => r.quote)?.quote ?? null;
   const referenceOption = rows?.find((r) => r.quote === reference)?.option.name;
@@ -582,6 +692,7 @@ function SpotCheck({
   options,
   rounding,
   params,
+  server,
   adjustment,
 }: {
   priceList: PriceList;
@@ -590,6 +701,7 @@ function SpotCheck({
   rounding: PriceUnit;
   /** Sent with the production quote (variant options, Studio Editor flag). */
   params: Record<string, string>;
+  server: Server;
   /** Studio Editor discount to apply to the draft's quote, if comparing against the editor. */
   adjustment: PriceAdjustment | null;
 }) {
@@ -637,7 +749,7 @@ function SpotCheck({
     let production: number | null = null;
     let error: string | null = null;
     try {
-      const quote = await fetchProductionQuote(product.slug, w, h, { quantity: q, params });
+      const quote = await fetchProductionQuote(product.slug, w, h, { quantity: q, params, server });
       production = quote.prices.find((p) => p.quantity === q)?.price ?? null;
       if (production == null) error = 'Production returned no price for this quantity.';
     } catch (err) {
@@ -679,7 +791,7 @@ function SpotCheck({
             note={state.draftNote}
           />
           <Figure
-            label={adjustment ? 'Studio Editor' : 'Production'}
+            label={`${server === 'dev' ? 'Dev ' : ''}${adjustment ? 'Studio Editor' : 'Production'}`}
             value={state.production != null ? won(state.production) : '—'}
             note={state.error}
           />
@@ -786,11 +898,14 @@ function Matrix({
   comparison,
   filter,
   measure,
+  source,
   onGoToCell,
 }: {
   comparison: ReturnType<typeof compareDraft>;
   filter: Filter;
   measure: Measure;
+  /** What the draft is compared with: "Production", "Dev", "Studio Editor"… */
+  source: string;
   onGoToCell: (rowIndex: number, gridColIndex: number) => void;
 }) {
   const rows = useMemo(
@@ -883,7 +998,7 @@ function Matrix({
                         opacity: active ? 1 : 0.2,
                       }}
                       onClick={() => cell.status !== 'blank' && onGoToCell(cell.rowIndex, FIRST_PRICE_COL + cell.colIndex)}
-                      title={cellTitle(row, cell)}
+                      title={cellTitle(row, cell, source)}
                     >
                       <HeatCell cell={cell} measure={measure} rowState={row.state} />
                     </td>
@@ -950,7 +1065,7 @@ function HeatCell({ cell, measure, rowState }: { cell: CompareCell; measure: Mea
   );
 }
 
-function cellTitle(row: CompareRow, cell: CompareCell): string {
+function cellTitle(row: CompareRow, cell: CompareCell, source: string): string {
   if (cell.status === 'blank') return '';
   const parts = [`${row.baseArea != null ? `${groupDigits(row.baseArea)} mm²` : row.sizeLabel} (${row.sizeLabel}) × qty ${groupDigits(cell.quantity ?? 0)}`];
   if (cell.draftRaw != null && cell.draft !== cell.draftRaw) {
@@ -958,9 +1073,9 @@ function cellTitle(row: CompareRow, cell: CompareCell): string {
   } else {
     parts.push(`Draft ${won(cell.draft ?? 0)}`);
   }
-  if (cell.production != null) parts.push(`Production ${won(cell.production)}`);
+  if (cell.production != null) parts.push(`${source} ${won(cell.production)}`);
   if (cell.diff != null) parts.push(cell.diff === 0 ? 'Match ✓' : `Δ ${signedWon(cell.diff)} (${signedPct(cell.diffPct, 2)})`);
-  if (row.state === 'error') parts.push(`Production: ${row.error}`);
+  if (row.state === 'error') parts.push(`${source}: ${row.error}`);
   parts.push('Click to edit in the price table');
   return parts.join('\n');
 }
@@ -968,10 +1083,14 @@ function cellTitle(row: CompareRow, cell: CompareCell): string {
 function DiffList({
   comparison,
   filter,
+  source,
+  against,
   onGoToCell,
 }: {
   comparison: ReturnType<typeof compareDraft>;
   filter: Filter;
+  source: string;
+  against: string;
   onGoToCell: (rowIndex: number, gridColIndex: number) => void;
 }) {
   const items = useMemo(() => {
@@ -990,7 +1109,7 @@ function DiffList({
   if (items.length === 0) {
     return (
       <div className="px-4 py-12 text-center text-sm text-slate-500">
-        No differences — every compared price matches production.
+        No differences — every compared price matches {against}.
       </div>
     );
   }
@@ -1000,7 +1119,7 @@ function DiffList({
       <table className="w-full border-separate border-spacing-0 text-xs">
         <thead>
           <tr className="text-slate-600">
-            {['Size', 'Quantity', 'Draft', 'Production', 'Δ ₩', 'Δ %'].map((h, i) => (
+            {['Size', 'Quantity', 'Draft', source, 'Δ ₩', 'Δ %'].map((h, i) => (
               <th
                 key={h}
                 className={`sticky top-0 border-b border-slate-200 bg-white px-4 py-2 font-semibold ${i === 0 ? 'text-left' : 'text-right'}`}
@@ -1068,6 +1187,82 @@ const ROUNDING_OPTIONS: [string, string][] = [
   ['10', '₩10'],
   ['100', '₩100'],
 ];
+
+/**
+ * Production and dev side by side: the draft's match rate on each (click to
+ * switch), and how many prices dev would change compared with production.
+ */
+function ServerSummary({
+  server,
+  onServer,
+  current,
+  other,
+  diff,
+  studio,
+}: {
+  server: Server;
+  onServer: (server: Server) => void;
+  current: CompareSummary | null;
+  other: CompareSummary | null;
+  diff: ServerDiff | null;
+  studio: boolean;
+}) {
+  const bySrv: Record<Server, CompareSummary | null> =
+    server === 'dev' ? { production: other, dev: current } : { production: current, dev: other };
+  const rate = (s: CompareSummary | null) =>
+    s && s.compared > 0 ? `${Math.round((s.same / s.compared) * 100)}% match` : s ? 'nothing compared' : 'not fetched';
+
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-slate-100 pt-2.5 text-xs text-slate-500">
+      <span className="font-medium">Draft vs</span>
+      {(['production', 'dev'] as const).map((srv) => (
+        <button
+          key={srv}
+          onClick={() => onServer(srv)}
+          aria-pressed={server === srv}
+          className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 ring-1 transition ${
+            server === srv ? 'bg-brand-50 text-brand-800 ring-brand-300' : 'bg-white ring-slate-200 hover:text-slate-800'
+          }`}
+          title={`Show the comparison against ${srv === 'dev' ? 'the dev server' : 'production'}`}
+        >
+          <span
+            className={`rounded px-1 text-[10px] font-semibold uppercase ${
+              srv === 'dev' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
+            }`}
+          >
+            {srv === 'dev' ? 'dev' : 'prod'}
+          </span>
+          <span className="tabular-nums">{rate(bySrv[srv])}</span>
+        </button>
+      ))}
+      <span className="text-slate-300">|</span>
+      {diff ? (
+        diff.compared === 0 ? (
+          <span>Dev and production quoted no common prices.</span>
+        ) : diff.differ === 0 ? (
+          <span>
+            <CheckIcon width={11} height={11} className="mr-1 inline" style={{ color: DIFF.match }} />
+            Dev {studio ? 'Studio Editor ' : ''}prices are the same as production ({diff.compared.toLocaleString()} prices)
+          </span>
+        ) : (
+          <span>
+            Dev vs production: <b className="tabular-nums text-slate-800">{diff.differ.toLocaleString()}</b> of{' '}
+            {diff.compared.toLocaleString()} {studio ? 'Studio Editor ' : ''}prices differ
+            {diff.largest && (
+              <span className="text-slate-400">
+                {' '}
+                · largest {diff.largest.sizeKey.replace('x', '×')} × qty {groupDigits(diff.largest.quantity)}:{' '}
+                {won(diff.largest.production)} → {won(diff.largest.dev)}
+              </span>
+            )}
+          </span>
+        )
+      ) : (
+        <span className="text-slate-400">Fetch both servers to see what dev changes.</span>
+      )}
+    </div>
+  );
+}
 
 /** How drafted prices are rounded before they are lined up against production. */
 function RoundingControl({
