@@ -72,7 +72,7 @@ export default function Calculator({ result, options }: Props) {
   return (
     <div className="flex h-full gap-5 overflow-hidden">
       {/* ---------------------------------------------------- inputs */}
-      <aside className="flex w-[352px] shrink-0 flex-col gap-4 overflow-y-auto pr-1">
+      <aside className="flex w-[352px] shrink-0 flex-col gap-4 overflow-y-auto pr-1 pb-[var(--dock-clear)]">
         <Panel title="Specification">
           {/* items-end so the separator lines up with the inputs, not the labels. */}
           <div className="flex items-end gap-2.5">
@@ -156,7 +156,7 @@ export default function Calculator({ result, options }: Props) {
       </aside>
 
       {/* --------------------------------------------------- results */}
-      <section className="min-w-0 flex-1 overflow-y-auto pr-1">
+      <section className="min-w-0 flex-1 overflow-y-auto pr-1 pb-[var(--dock-clear)]">
         {!touched ? (
           <Placeholder grid={grid} />
         ) : calc.errors.length > 0 ? (

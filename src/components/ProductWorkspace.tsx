@@ -311,10 +311,13 @@ export default function ProductWorkspace({
                 key={t.id}
                 onClick={() => onTabChange(t.id)}
                 className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-medium transition-colors ${
-                  active ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:bg-white hover:text-slate-800'
+                  active
+                    ? 'bg-brand-600 font-semibold text-white shadow-md shadow-brand-600/30'
+                    : 'text-slate-500 hover:bg-white hover:text-slate-800'
                 }`}
+                aria-current={active ? 'page' : undefined}
               >
-                <span className={active ? 'text-brand-600' : 'text-slate-400'}>{t.icon}</span>
+                <span className={active ? 'text-white' : 'text-slate-400'}>{t.icon}</span>
                 {t.label}
                 {badge}
               </button>
@@ -387,7 +390,7 @@ export default function ProductWorkspace({
         </div>
       )}
 
-      <main className="min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-7">
+      <main className="min-h-0 flex-1 overflow-hidden px-4 pb-3 pt-4 sm:px-7">
         {tab === 'table' && (
           <SpreadsheetGrid
             sheet={sheet}
@@ -461,7 +464,7 @@ function DiffBadge({ count }: { count: number }) {
   return (
     <span
       className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-        count > 0 ? 'bg-slate-800 text-white' : 'bg-green-100 text-green-700'
+        count > 0 ? 'bg-slate-800 text-white ring-1 ring-white/40' : 'bg-green-100 text-green-700'
       }`}
     >
       {count > 0 ? `Δ ${count.toLocaleString()}` : '✓'}

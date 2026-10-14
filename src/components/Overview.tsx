@@ -6,35 +6,19 @@ import type { ProductStatus } from '../state/workspace';
 import type { CompareSummary, Server } from '../lib/production';
 import Swatches from './Swatches';
 import ProductThumb from './ProductThumb';
-import { ArrowDownIcon, ArrowUpIcon, CheckIcon, CompareIcon, MenuIcon } from './icons';
-import { timeAgo } from '../lib/format';
-import { COMPARE_SPECS, specId, specLabel, type BulkCompare } from '../hooks/useBulkCompare';
+import { ArrowDownIcon, ArrowUpIcon, CheckIcon, MenuIcon } from './icons';
 
 interface Props {
   statuses: Record<string, ProductStatus>;
   onSelectProduct: (key: string) => void;
   onOpenCompare: (key: string) => void;
   onOpenNav: () => void;
-  /** "Compare all": fetch prices for every drafted list in the chosen category. */
-  bulk: BulkCompare;
-  /** Which musticker server the chart shows, and compare-all fetches from. */
+  /** Which musticker server's comparisons the chart shows. */
   server: Server;
   onServer: (server: Server) => void;
 }
 
 type Source = 'production' | 'studio';
-const SPECS_KEY = 'pricer-maker:compare-all-specs';
-
-/** The combinations "Compare all" runs, remembered per browser. All four by default. */
-function loadSpecIds(): string[] {
-  try {
-    const stored = JSON.parse(localStorage.getItem(SPECS_KEY) ?? 'null');
-    if (Array.isArray(stored)) return COMPARE_SPECS.map(specId).filter((id) => stored.includes(id));
-  } catch {
-    /* fall through */
-  }
-  return COMPARE_SPECS.map(specId);
-}
 
 type Filter = 'all' | CategoryId;
 
@@ -60,27 +44,15 @@ const matchRate = (c: CompareSummary) => pct(c.same, c.compared);
  * lists not compared or not drafted yet follow, so the whole catalog is
  * always on one page.
  */
-export default function Overview({ statuses, onSelectProduct, onOpenCompare, onOpenNav, bulk, server, onServer }: Props) {
+export default function Overview({ statuses, onSelectProduct, onOpenCompare, onOpenNav, server, onServer }: Props) {
   const [filter, setFilter] = useState<Filter>('all');
   const [source, setSource] = useState<Source>('production');
-  const [specIds, setSpecIds] = useState<string[]>(loadSpecIds);
-  const toggleSpec = (id: string) =>
-    setSpecIds((ids) => {
-      const next = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
-      try {
-        localStorage.setItem(SPECS_KEY, JSON.stringify(next));
-      } catch {
-        /* not remembered — fine */
-      }
-      return next;
-    });
-  const specs = COMPARE_SPECS.filter((s) => specIds.includes(specId(s)));
   const [tip, setTip] = useState<Tip | null>(null);
 
   /** The comparison this chart shows for a list: production's or the Studio Editor's. */
   const summaryOf = (status: ProductStatus | undefined) => (source === 'studio' ? status?.studioCompare : status?.compare) ?? null;
 
-  const { compared, uncompared, undrafted, drafted } = useMemo(() => {
+  const { compared, uncompared, undrafted } = useMemo(() => {
     const entries: Entry[] = PRICE_LISTS.filter((l) => filter === 'all' || l.product.category === filter).map((list) => ({
       list,
       status: statuses[list.key],
@@ -90,18 +62,15 @@ export default function Overview({ statuses, onSelectProduct, onOpenCompare, onO
       compared: entries.filter((e) => summary(e)).sort((a, b) => matchRate(summary(a)!) - matchRate(summary(b)!)),
       uncompared: entries.filter((e) => e.status?.hasDraft && !summary(e)),
       undrafted: entries.filter((e) => !e.status?.hasDraft),
-      drafted: entries.filter((e) => e.status?.hasDraft).map((e) => e.list),
     };
   }, [filter, statuses, source]);
 
-  const scopeName = filter === 'all' ? 'all categories' : (CATEGORIES.find((c) => c.id === filter)?.english ?? '');
-  const runAll = () => void bulk.run(drafted, specs);
 
   const showTip: ShowTip = (e, content) => setTip({ x: e.clientX, y: e.clientY, content });
   const hideTip = () => setTip(null);
 
   return (
-    <div className="flex h-full min-w-0 flex-col overflow-hidden px-4 pb-5 pt-3 sm:px-7" onMouseLeave={hideTip}>
+    <div className="flex h-full min-w-0 flex-col overflow-hidden px-4 pb-3 pt-3 sm:px-7" onMouseLeave={hideTip}>
       <section className="card flex min-h-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-6 pb-3 pt-5">
           <button className="btn btn-default px-2 lg:hidden" onClick={onOpenNav} aria-label="Open products">
@@ -131,7 +100,7 @@ export default function Overview({ statuses, onSelectProduct, onOpenCompare, onO
           </div>
         </div>
 
-        {/* ------------------------------------------------ what to show, and compare all */}
+        {/* ------------------------------------------------ what to show ("Sync prices" is in the top bar) */}
         <div className="mx-6 mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl bg-slate-50 px-4 py-2.5">
           <label className="flex items-center gap-2 text-xs text-slate-500">
             Server
@@ -156,93 +125,9 @@ export default function Overview({ statuses, onSelectProduct, onOpenCompare, onO
             />
           </label>
 
-          <div className="ml-auto flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            {bulk.progress ? (
-              <>
-                <span className="min-w-0 truncate">
-                  Comparing <b className="tabular-nums text-slate-700">{bulk.progress.job}</b> of {bulk.progress.jobs} ·{' '}
-                  {listLabel(bulk.progress.list)} · {specLabel(bulk.progress)} ·{' '}
-                  <span className="tabular-nums">
-                    {bulk.progress.done}/{bulk.progress.total}
-                  </span>{' '}
-                  sizes
-                </span>
-                <button className="btn btn-default" onClick={bulk.cancel}>
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <>
-                <span>Compare against</span>
-                <div className="flex flex-wrap gap-1" role="group" aria-label="Compare against">
-                  {COMPARE_SPECS.map((spec) => {
-                    const id = specId(spec);
-                    const on = specIds.includes(id);
-                    return (
-                      <button
-                        key={id}
-                        aria-pressed={on}
-                        onClick={() => toggleSpec(id)}
-                        className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 transition ${
-                          on
-                            ? 'bg-brand-50 text-brand-700 ring-brand-300'
-                            : 'bg-white text-slate-500 ring-slate-200 hover:text-slate-700'
-                        }`}
-                      >
-                        <span
-                          className={`flex h-3.5 w-3.5 items-center justify-center rounded border ${
-                            on ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 bg-white'
-                          }`}
-                        >
-                          {on && <CheckIcon width={10} height={10} />}
-                        </span>
-                        {spec.target === 'studio' ? 'Studio Editor' : 'Price'}
-                        <span
-                          className={`rounded px-1 text-[10px] font-semibold uppercase ${
-                            spec.server === 'dev' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'
-                          }`}
-                        >
-                          {spec.server === 'dev' ? 'dev' : 'prod'}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <button
-                  className="btn btn-primary"
-                  onClick={runAll}
-                  disabled={drafted.length === 0 || specs.length === 0}
-                  title={`Fetch ${specs.map(specLabel).join(', ') || 'nothing — pick at least one'} for every drafted price list in ${scopeName}`}
-                >
-                  <CompareIcon width={14} height={14} />
-                  Compare {drafted.length} price list{drafted.length === 1 ? '' : 's'}
-                  {specs.length > 1 && <span className="font-normal opacity-80">× {specs.length}</span>}
-                  <span className="font-normal opacity-80">· {scopeName}</span>
-                </button>
-              </>
-            )}
-          </div>
-
-          {bulk.progress && (
-            <div className="h-1 w-full overflow-hidden rounded-full bg-slate-200">
-              <div
-                className="h-full rounded-full bg-brand-500 transition-[width]"
-                style={{
-                  width: `${(((bulk.progress.job - 1) + bulk.progress.done / Math.max(1, bulk.progress.total)) / bulk.progress.jobs) * 100}%`,
-                }}
-              />
-            </div>
-          )}
-          {!bulk.progress && bulk.result && (
-            <div className="w-full text-[11px] text-slate-500">
-              {bulk.result.cancelled ? 'Stopped' : 'Done'} {timeAgo(bulk.result.at)} — {bulk.result.finished} of{' '}
-              {bulk.result.jobs} comparison{bulk.result.jobs === 1 ? '' : 's'} saved to the shared database
-              {bulk.result.skipped > 0 && ` · ${bulk.result.skipped} list(s) skipped: no row with a base area`}.
-            </div>
-          )}
         </div>
 
-        <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto px-6 pb-5">
+        <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto px-6 pb-[var(--dock-clear)]">
           {compared.map(({ list, status }) => {
             const c = summaryOf(status)!;
             return (

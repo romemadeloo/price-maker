@@ -2,6 +2,9 @@ import { useState, type FormEvent } from 'react';
 import type { CloudSync } from '../hooks/useCloudSync';
 import { timeAgo } from '../lib/format';
 import type { EngineOptions } from '../types';
+import type { BulkCompare } from '../hooks/useBulkCompare';
+import type { PriceList } from '../lib/products';
+import SyncPrices, { type SyncScope } from './SyncPrices';
 
 export const USER_NAME_INPUT_ID = 'pricer-user-name';
 
@@ -14,16 +17,30 @@ interface Props {
   setUserName: (name: string) => void;
   options: EngineOptions;
   setOptions: (o: EngineOptions) => void;
+  /** "Sync prices": fetch production and dev prices for many lists at once. */
+  bulk: BulkCompare;
+  draftedIn: (scope: SyncScope) => PriceList[];
 }
 
 /**
  * The settings that apply everywhere — who you are, rate precision, and
  * whether drafts are shared — in a slim bar across the top of every page.
  */
-export default function TopBar({ sync, browserSaved, pendingCount, userName, setUserName, options, setOptions }: Props) {
+export default function TopBar({
+  sync,
+  browserSaved,
+  pendingCount,
+  userName,
+  setUserName,
+  options,
+  setOptions,
+  bulk,
+  draftedIn,
+}: Props) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 px-4 pt-4 sm:px-7">
       <SyncStatus sync={sync} browserSaved={browserSaved} pendingCount={pendingCount} />
+      <SyncPrices bulk={bulk} draftedIn={draftedIn} />
 
       <label
         className="flex items-center gap-2 rounded-full bg-white py-1 pl-3.5 pr-1 text-xs text-slate-500 shadow-sm ring-1 ring-slate-200/70"

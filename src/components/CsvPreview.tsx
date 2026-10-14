@@ -136,7 +136,7 @@ export default function CsvPreview({ result, onReset, onRecalculate }: Props) {
         {truncated && <span>Preview limited to the first {PREVIEW_LINE_LIMIT.toLocaleString()} lines.</span>}
       </div>
 
-      <pre className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-300 bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-slate-100">
+      <pre className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-300 bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-slate-100 pb-[var(--dock-clear)]">
         {preview}
       </pre>
     </div>

@@ -6,6 +6,14 @@ html, body, #root {
   height: 100%;
 }
 
+/*
+ * The dock floats over the bottom of every page. Scrolling areas end with this
+ * much room so their last rows can scroll clear of it.
+ */
+:root {
+  --dock-clear: 80px;
+}
+
 body {
   margin: 0;
   @apply bg-[#f5f6fa] font-sans text-slate-900;

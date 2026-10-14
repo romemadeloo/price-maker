@@ -895,7 +895,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
             setScrollTop((e.target as HTMLDivElement).scrollTop);
             setMenu(null);
           }}
-          className="h-full select-none overflow-auto bg-white"
+          className="h-full select-none overflow-auto bg-white pb-[var(--dock-clear)]"
         >
           <div style={{ width: totalWidth, position: 'relative' }}>
             {/* Frozen: column letters, then the quantity row. */}

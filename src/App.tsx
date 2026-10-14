@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import NavRail, { type RailTarget } from './components/NavRail';
 import TopBar from './components/TopBar';
+import type { SyncScope } from './components/SyncPrices';
 import { useBulkCompare } from './hooks/useBulkCompare';
 import Overview from './components/Overview';
 import ProductWorkspace, { type Tab } from './components/ProductWorkspace';
@@ -154,6 +155,12 @@ export default function App() {
     saveSnapshot,
   );
 
+  const draftedIn = useCallback(
+    (scope: SyncScope) =>
+      PRICE_LISTS.filter((l) => (scope === 'all' || l.product.category === scope) && workspace.drafts[l.key]),
+    [workspace.drafts],
+  );
+
   const selectProduct = useCallback((next: string) => {
     setWorkspace((ws) => (ws.activeSlug === next ? ws : { ...ws, activeSlug: next }));
     setView('product');
@@ -201,8 +208,8 @@ export default function App() {
         onClose={() => setNavOpen(false)}
       />
 
-      {/* Bottom padding keeps the floating dock clear of each page's last rows. */}
-      <div className="flex min-w-0 flex-1 flex-col pb-[72px]">
+      {/* Pages run to the bottom edge with the dock floating over them; their scroll areas leave room for it. */}
+      <div className="flex min-w-0 flex-1 flex-col">
         <TopBar
           sync={sync}
           browserSaved={saved}
@@ -211,6 +218,8 @@ export default function App() {
           setUserName={setUserName}
           options={workspace.options}
           setOptions={setOptions}
+          bulk={bulk}
+          draftedIn={draftedIn}
         />
         {view === 'overview' ? (
           <Overview
@@ -224,7 +233,6 @@ export default function App() {
               setTab('compare');
             }}
             onOpenNav={() => setNavOpen(true)}
-            bulk={bulk}
             server={server}
             onServer={setServer}
           />

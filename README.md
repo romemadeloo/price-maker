@@ -235,13 +235,14 @@ if production ever splits a group, it says which colors no longer match. The
 groups are defined in `src/lib/products.ts` (`variants`); the solid group keeps
 the bare `vinyl-lettering` key, the others are `vinyl-lettering~<group>`.
 
-**Compare all** — on the Overview, tick what to *Compare against* — Price
-(prod), Studio Editor (prod), Price (dev), Studio Editor (dev), any mix (all four
-by default, remembered per browser) — then **Compare N price lists × M** fetches
-prices for every drafted list in the selected category (All / Stickers / Roll /
-Sheet), one list after another, with progress and Cancel. Each list's result is
-saved to the database the moment it lands, so a cancelled run keeps what
-finished. *Show* switches the chart between the production and Studio Editor
+**Sync prices** — one button at the top of every page fetches prices for every
+drafted price list, or one category's (All / Stickers / Roll / Sheet). Its arrow
+opens the choices: which products, and which prices — Price (prod), Studio
+Editor (prod), Price (dev), Studio Editor (dev), any mix (all four by default;
+both choices remembered per browser). It runs one list after another, with
+progress and Cancel in the top bar, and saves each list's result to the
+database the moment it lands, so a cancelled run keeps what finished. On the
+Overview, *Show* switches the chart between the production and Studio Editor
 comparisons; *Server* between production and dev results.
 
 **Dev server** — every comparison can also run against the staging API,
@@ -275,7 +276,10 @@ normal ones (`<price list>@studio`).
 
 **Dock** — Overview, Price table, Compare to production and Studio Editor sit
 in a macOS-style dock at the bottom centre of the window: icons swell as the
-pointer passes, the label shows above, and a dot marks where you are.
+pointer passes, the label shows above, and a dot marks where you are. Pages run
+to the bottom edge with the dock floating over them; every scrolling table
+ends with room (`--dock-clear`) so its last rows scroll clear of it. The open
+tab is a solid blue pill.
 
 **Expand** — every table (price table, price per mm², validation, CSV
 preview, and the compare/studio heatmap and differences) has an ⤢ Expand

@@ -66,7 +66,7 @@ export default function RateTable({ result }: Props) {
       </div>
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-300 bg-white"
+        className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-300 bg-white pb-[var(--dock-clear)]"
         onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
       >
         <div style={{ width: totalWidth, position: 'relative' }}>

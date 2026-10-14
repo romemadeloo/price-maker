@@ -142,7 +142,7 @@ export default function ProductionCompare({
   const [spotOpen, setSpotOpen] = useState(false);
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-y-auto pb-2">
+    <div className="flex h-full flex-col gap-3 overflow-y-auto">
       {/* ------------------------------------------------ source, rounding, actions — one compact card */}
       <section className="card px-4 py-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -354,7 +354,7 @@ export default function ProductionCompare({
               <HeatLegend />
               <FullscreenButton modal={fullscreen} className="ml-auto lg:ml-2" />
             </div>
-            <div className="min-h-0 flex-1 overflow-auto border-t border-slate-100">
+            <div className="min-h-0 flex-1 overflow-auto border-t border-slate-100 pb-[var(--dock-clear)]">
               {view === 'matrix' ? (
                 <Matrix comparison={comparison} filter={filter} measure={measure} source={sourceLabel} onGoToCell={onGoToCell} />
               ) : (

@@ -58,7 +58,7 @@ export default function ValidationTable({ result, onGoToCell }: Props) {
         <FullscreenButton modal={fullscreen} className="ml-auto" />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-300 bg-white">
+      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-300 bg-white pb-[var(--dock-clear)]">
         <table className="w-full border-collapse text-xs">
           <thead className="sticky top-0 z-10 bg-slate-100 text-left">
             <tr className="border-b-2 border-slate-300">
