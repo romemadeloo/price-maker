@@ -59,7 +59,7 @@ export function savePasscode(passcode: string): void {
   }
 }
 
-async function call<T>(path: string, init: RequestInit = {}): Promise<{ status: number; body: T }> {
+export async function call<T>(path: string, init: RequestInit = {}): Promise<{ status: number; body: T }> {
   const headers = new Headers(init.headers);
   const passcode = loadPasscode();
   if (passcode) headers.set('x-pricer-passcode', passcode);

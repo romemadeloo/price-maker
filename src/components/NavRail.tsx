@@ -1,13 +1,23 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { CompareIcon, GridIcon, SparkIcon, TableIcon } from './icons';
+import { CompareIcon, GearIcon, GridIcon, SparkIcon, TableIcon } from './icons';
+import type { Server } from '../lib/production';
 
-export type RailTarget = 'overview' | 'table' | 'compare' | 'studio';
+export type RailTarget = 'overview' | 'table' | 'compare' | 'studio' | 'settings';
 
-const ITEMS: { target: RailTarget; label: string; icon: ReactNode }[] = [
+const items = (server: Server): { target: RailTarget; label: string; icon: ReactNode }[] => [
   { target: 'overview', label: 'Overview', icon: <GridIcon width={22} height={22} /> },
   { target: 'table', label: 'Price table', icon: <TableIcon width={22} height={22} /> },
-  { target: 'compare', label: 'Compare to production', icon: <CompareIcon width={22} height={22} /> },
-  { target: 'studio', label: 'Compare to Studio Editor', icon: <SparkIcon width={22} height={22} /> },
+  {
+    target: 'compare',
+    label: server === 'dev' ? 'Compare to development' : 'Compare to production',
+    icon: <CompareIcon width={22} height={22} />,
+  },
+  {
+    target: 'studio',
+    label: server === 'dev' ? 'Compare to dev Studio Editor' : 'Compare to Studio Editor',
+    icon: <SparkIcon width={22} height={22} />,
+  },
+  { target: 'settings', label: 'Settings', icon: <GearIcon width={22} height={22} /> },
 ];
 
 /** Resting icon size, how much the one under the pointer grows, and how far the swell reaches. */
@@ -23,9 +33,12 @@ const REACH = 90;
 export default function NavRail({
   active,
   onNavigate,
+  server = 'production',
 }: {
   active: RailTarget | null;
   onNavigate: (target: RailTarget) => void;
+  /** The selected server, which names the compare items. */
+  server?: Server;
 }) {
   const [pointerX, setPointerX] = useState<number | null>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -47,7 +60,7 @@ export default function NavRail({
         className="pointer-events-auto flex items-end gap-2 rounded-[22px] bg-white/70 px-2.5 pb-2 pt-2 shadow-[0_10px_30px_rgba(15,23,42,0.16)] ring-1 ring-black/5 backdrop-blur-xl"
         aria-label="Sections"
       >
-        {ITEMS.map((item, i) => {
+        {items(server).map((item, i) => {
           const size = sizeOf(i);
           return (
             <button

@@ -1,4 +1,4 @@
-import type { WorkspaceStore } from './store.js';
+import type { VersionStatus, WorkspaceStore } from './store.js';
 
 /**
  * The shared-workspace API, written against Web Request/Response so the same
@@ -10,6 +10,13 @@ import type { WorkspaceStore } from './store.js';
  *                                            → 200 { version, updatedAt, updatedBy }
  *                                            → 409 { version, draft }  someone saved first
  *   PUT  /api/workspace?slug=x&kind=snapshot { fetchedAt, savedAt, quotes }
+ *
+ * Versions (saved copies of a product's table, each 'draft' or 'actual'):
+ *   GET    /api/workspace?kind=versions&slug=x       → { versions: [meta…] } newest first
+ *   GET    /api/workspace?kind=version&slug=x&id=v  → { version: meta + sheet }
+ *   POST   /api/workspace?kind=version&slug=x       { label, status, note?, sheet, createdBy } → { version: meta }
+ *   PATCH  /api/workspace?kind=version&slug=x&id=v  { label?, status?, note? }
+ *   DELETE /api/workspace?kind=version&slug=x&id=v
  *
  * There are no user accounts. If PRICER_PASSCODE is set, every request must
  * send it in `x-pricer-passcode`; if it is not set, anyone with the URL can
@@ -44,6 +51,19 @@ const MAX_ROWS = 20_000;
 const MAX_COLUMNS = 200;
 const MAX_CELL = 64;
 const MAX_NAME = 60;
+const MAX_LABEL = 80;
+const MAX_NOTE = 500;
+/** Per product. Old versions have to be deleted to save more. */
+export const MAX_VERSIONS = 200;
+const VERSION_ID = /^[A-Za-z0-9-]{1,64}$/;
+
+function versionStatus(value: unknown): VersionStatus | null {
+  return value === 'actual' || value === 'draft' ? value : null;
+}
+
+function trimmed(value: unknown, max: number): string | null {
+  return typeof value === 'string' ? value.trim().slice(0, max) : null;
+}
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -109,6 +129,11 @@ export async function handleWorkspace(
   const now = options.now ?? (() => new Date());
 
   try {
+    const kind = url.searchParams.get('kind');
+    if (kind === 'versions' || kind === 'version') {
+      return await handleVersions(request, url, store, now);
+    }
+
     if (request.method === 'GET') {
       const index = await store.readIndex();
       if (url.searchParams.get('summary') === '1') return json({ storage: store.kind, ...index });
@@ -134,7 +159,6 @@ export async function handleWorkspace(
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
       if (!body || typeof body !== 'object') return error(400, 'bad-body', 'Expected a JSON body.');
 
-      const kind = url.searchParams.get('kind');
       if (kind === 'draft') {
         const baseVersion = Number(body.baseVersion);
         if (!Number.isInteger(baseVersion) || baseVersion < 0) return error(400, 'bad-version', 'baseVersion is required.');
@@ -176,4 +200,73 @@ export async function handleWorkspace(
   } catch (err) {
     return error(502, 'storage', `Shared storage failed: ${(err as Error).message}`);
   }
+}
+
+async function handleVersions(request: Request, url: URL, store: WorkspaceStore, now: () => Date): Promise<Response> {
+  const slug = url.searchParams.get('slug') ?? '';
+  // Versions belong to a price list's draft, never to a comparison snapshot.
+  if (!isSlug(slug) || slug.includes('@')) return error(400, 'bad-slug', `Unknown product "${slug}".`);
+  const id = url.searchParams.get('id');
+  if (id != null && !VERSION_ID.test(id)) return error(400, 'bad-id', 'Unknown version.');
+  const missing = () => error(404, 'not-found', 'That version no longer exists.');
+
+  if (request.method === 'GET') {
+    if (url.searchParams.get('kind') === 'versions') return json({ versions: await store.listVersions(slug) });
+    if (!id) return error(400, 'bad-id', 'id is required.');
+    const row = await store.readVersion(slug, id);
+    if (!row) return missing();
+    const { record, ...meta } = row;
+    const parsed = parseJson<{ sheet: StoredSheet }>(record);
+    return json({ version: { ...meta, sheet: parsed?.sheet ?? null } });
+  }
+
+  if (request.method === 'DELETE') {
+    if (!id) return error(400, 'bad-id', 'id is required.');
+    return (await store.deleteVersion(slug, id)) ? json({ ok: true }) : missing();
+  }
+
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || typeof body !== 'object') return error(400, 'bad-body', 'Expected a JSON body.');
+
+  if (request.method === 'POST') {
+    const sheet = sanitizeSheet(body.sheet);
+    if (!sheet) return error(400, 'bad-sheet', 'The version is not a price table, or it is too large.');
+    const status = versionStatus(body.status ?? 'draft');
+    if (!status) return error(400, 'bad-status', 'status must be "draft" or "actual".');
+    const label = trimmed(body.label, MAX_LABEL);
+    if (!label) return error(400, 'bad-label', 'Give the version a name.');
+    if ((await store.countVersions(slug)) >= MAX_VERSIONS) {
+      return error(409, 'too-many', `This product already has ${MAX_VERSIONS} versions. Delete old ones to save more.`);
+    }
+    const meta = {
+      id: crypto.randomUUID(),
+      slug,
+      label,
+      status,
+      note: trimmed(body.note, MAX_NOTE) || null,
+      createdAt: now().toISOString(),
+      createdBy: trimmed(body.createdBy, MAX_NAME) || null,
+    };
+    await store.addVersion({ ...meta, record: JSON.stringify({ sheet }) });
+    return json({ version: meta }, 201);
+  }
+
+  if (request.method === 'PATCH') {
+    if (!id) return error(400, 'bad-id', 'id is required.');
+    const patch: { label?: string; status?: VersionStatus; note?: string | null } = {};
+    if (body.status !== undefined) {
+      const status = versionStatus(body.status);
+      if (!status) return error(400, 'bad-status', 'status must be "draft" or "actual".');
+      patch.status = status;
+    }
+    if (body.label !== undefined) {
+      const label = trimmed(body.label, MAX_LABEL);
+      if (!label) return error(400, 'bad-label', 'Give the version a name.');
+      patch.label = label;
+    }
+    if (body.note !== undefined) patch.note = trimmed(body.note, MAX_NOTE) || null;
+    return (await store.updateVersion(slug, id, patch)) ? json({ ok: true }) : missing();
+  }
+
+  return error(405, 'method', 'Use GET, POST, PATCH or DELETE.');
 }

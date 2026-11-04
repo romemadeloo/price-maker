@@ -148,7 +148,7 @@ export default function ProductionCompare({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-xs text-slate-500">
             <span className="mr-1 text-sm font-bold text-slate-900">
-              {studio ? 'Draft vs Studio Editor' : 'Draft vs production'}
+              {studio ? (dev ? 'Draft vs dev Studio Editor' : 'Draft vs Studio Editor') : dev ? 'Draft vs development' : 'Draft vs production'}
             </span>
             {server === 'dev' && (
               <Chip tone="amber">

@@ -14,6 +14,27 @@
 
 export type WriteResult = { ok: true; version: number } | { ok: false; version: number; record: string | null };
 
+/**
+ * A saved copy of a product's price table — "version control" for drafts.
+ * `status` tells a working draft from the prices that are actually live; at
+ * most one version per product is 'actual'.
+ */
+export type VersionStatus = 'draft' | 'actual';
+
+export interface VersionRow {
+  id: string;
+  slug: string;
+  label: string;
+  status: VersionStatus;
+  note: string | null;
+  /** JSON: { sheet } — opaque here, like draft records. */
+  record: string;
+  createdAt: string;
+  createdBy: string | null;
+}
+
+export type VersionMeta = Omit<VersionRow, 'record'>;
+
 export interface WorkspaceStore {
   kind: 'postgres' | 'file' | 'memory';
   /** Draft versions and snapshot stamps for every product — the cheap poll. */
@@ -24,6 +45,15 @@ export interface WorkspaceStore {
   /** Compare-and-set. A null record deletes the draft (and still bumps the version). */
   writeDraft(slug: string, record: string | null, baseVersion: number): Promise<WriteResult>;
   writeSnapshot(slug: string, record: string, stamp: string): Promise<void>;
+  /** A product's versions, newest first, without their tables. */
+  listVersions(slug: string): Promise<VersionMeta[]>;
+  readVersion(slug: string, id: string): Promise<VersionRow | null>;
+  countVersions(slug: string): Promise<number>;
+  /** Adds a version; when it is 'actual', the product's previous actual becomes a draft. */
+  addVersion(row: VersionRow): Promise<void>;
+  /** Returns false when there is no such version. Marking one actual demotes the others. */
+  updateVersion(slug: string, id: string, patch: { label?: string; status?: VersionStatus; note?: string | null }): Promise<boolean>;
+  deleteVersion(slug: string, id: string): Promise<boolean>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -35,11 +65,15 @@ export interface StoreData {
   drafts: Record<string, string>;
   snapshots: Record<string, string>;
   snapshotStamps: Record<string, string>;
+  /** Saved versions of every product's table. */
+  draftVersions: VersionRow[];
 }
 
 export function emptyStoreData(): StoreData {
-  return { versions: {}, drafts: {}, snapshots: {}, snapshotStamps: {} };
+  return { versions: {}, drafts: {}, snapshots: {}, snapshotStamps: {}, draftVersions: [] };
 }
+
+const meta = ({ record: _record, ...rest }: VersionRow): VersionMeta => rest;
 
 function pick(source: Record<string, string>, slugs?: string[]): Record<string, string> {
   if (!slugs) return { ...source };
@@ -77,5 +111,41 @@ export function memoryStore(data: StoreData = emptyStoreData(), onChange?: (data
       data.snapshotStamps[slug] = stamp;
       onChange?.(data);
     },
+    async listVersions(slug) {
+      return data.draftVersions
+        .filter((v) => v.slug === slug)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .map(meta);
+    },
+    async readVersion(slug, id) {
+      return data.draftVersions.find((v) => v.slug === slug && v.id === id) ?? null;
+    },
+    async countVersions(slug) {
+      return data.draftVersions.filter((v) => v.slug === slug).length;
+    },
+    async addVersion(row) {
+      if (row.status === 'actual') demote(row.slug);
+      data.draftVersions.push({ ...row });
+      onChange?.(data);
+    },
+    async updateVersion(slug, id, patch) {
+      const row = data.draftVersions.find((v) => v.slug === slug && v.id === id);
+      if (!row) return false;
+      if (patch.status === 'actual') demote(slug);
+      Object.assign(row, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)));
+      onChange?.(data);
+      return true;
+    },
+    async deleteVersion(slug, id) {
+      const before = data.draftVersions.length;
+      data.draftVersions = data.draftVersions.filter((v) => !(v.slug === slug && v.id === id));
+      if (data.draftVersions.length === before) return false;
+      onChange?.(data);
+      return true;
+    },
   };
+
+  function demote(slug: string) {
+    for (const v of data.draftVersions) if (v.slug === slug && v.status === 'actual') v.status = 'draft';
+  }
 }

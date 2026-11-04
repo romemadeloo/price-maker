@@ -6,4 +6,4 @@ function handle(request: Request): Promise<Response> {
   return handleWorkspace(request, prismaStoreFromEnv(process.env), { passcode: process.env.PRICER_PASSCODE });
 }
 
-export { handle as GET, handle as PUT };
+export { handle as GET, handle as PUT, handle as POST, handle as PATCH, handle as DELETE };

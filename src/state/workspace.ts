@@ -1,6 +1,6 @@
 import { DEFAULT_ENGINE_OPTIONS, type EngineOptions, type SheetRow, type SheetState } from '../types';
 import { DEFAULT_PRODUCT_SLUG, findPriceList } from '../lib/products';
-import { compareDraft, STUDIO_ADJUSTMENT, type CompareSummary, type ProductionSnapshot } from '../lib/production';
+import { compareDraft, normalizeServerUrl, STUDIO_ADJUSTMENT, type CompareSummary, type ProductionSnapshot } from '../lib/production';
 import { parseNumeric, parseSheet } from '../lib/parse';
 import { PRICE_UNITS, type PriceUnit } from '../lib/calculator';
 import type { RemoteDraft, RemoteWorkspace } from '../lib/sync';
@@ -44,6 +44,22 @@ export interface Workspace {
   compareRounding: Record<string, PriceUnit>;
   /** Which musticker server comparisons are made against — a viewing choice, kept in this browser. */
   server: Server;
+  /**
+   * Server URLs set in Settings, shared with everyone. A missing entry means
+   * the default (DEFAULT_SERVER_URLS).
+   */
+  serverUrls: Partial<Record<Server, string>>;
+}
+
+/** Keep only valid, normalized server URLs. */
+export function cleanServerUrls(value: unknown): Partial<Record<Server, string>> {
+  const out: Partial<Record<Server, string>> = {};
+  const source = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  for (const server of ['production', 'dev'] as const) {
+    const url = typeof source[server] === 'string' ? normalizeServerUrl(source[server] as string) : null;
+    if (url) out[server] = url;
+  }
+  return out;
 }
 
 const STORAGE_KEY = 'pricer-maker:workspace:v1';
@@ -60,6 +76,7 @@ export function emptyWorkspace(): Workspace {
     userName: '',
     compareRounding: {},
     server: 'production',
+    serverUrls: {},
   };
 }
 
@@ -129,6 +146,7 @@ export function loadWorkspace(): Workspace {
       dirtySnapshots: legacy ? allTrue(Object.keys(snapshots)) : (stored.dirtySnapshots ?? {}),
       userName: typeof stored.userName === 'string' ? stored.userName : '',
       server: stored.server === 'dev' ? 'dev' : 'production',
+      serverUrls: cleanServerUrls(stored.serverUrls),
       compareRounding: Object.fromEntries(
         Object.entries(stored.compareRounding ?? {}).filter(([, unit]) => (PRICE_UNITS as readonly number[]).includes(unit)),
       ),
@@ -188,8 +206,8 @@ export function saveWorkspace(workspace: Workspace, scope: 'all' | 'pending' = '
 /* ------------------------------------------------------------------ */
 
 /**
- * Settings everyone shares — rate precision and each price list's comparison
- * rounding — stored as one record beside the snapshots (last write wins).
+ * Settings everyone shares — rate precision, each price list's comparison
+ * rounding, and the musticker server URLs — stored as one record beside the snapshots (last write wins).
  * Your name stays in this browser.
  */
 export const SETTINGS_KEY = 'workspace-settings';
@@ -200,14 +218,14 @@ export function settingsRecord(workspace: Workspace): ProductionSnapshot {
     fetchedAt: now,
     savedAt: now,
     quotes: {},
-    settings: { options: workspace.options, compareRounding: workspace.compareRounding },
+    settings: { options: workspace.options, compareRounding: workspace.compareRounding, serverUrls: workspace.serverUrls },
   };
 }
 
 /** Change shared settings: apply them, and queue the settings record for the database. */
 export function withSettings(
   workspace: Workspace,
-  change: Partial<Pick<Workspace, 'options' | 'compareRounding'>>,
+  change: Partial<Pick<Workspace, 'options' | 'compareRounding' | 'serverUrls'>>,
 ): Workspace {
   const next = { ...workspace, ...change };
   return {
@@ -454,7 +472,7 @@ export function mergeRemote(
     changed = true;
   }
 
-  let shared: Pick<Workspace, 'options' | 'compareRounding'> | null = null;
+  let shared: Pick<Workspace, 'options' | 'compareRounding' | 'serverUrls'> | null = null;
   for (const [slug, snapshot] of Object.entries(remote.snapshots)) {
     if (!isKnownKey(slug) || workspace.dirtySnapshots[slug]) continue;
     if (snapshotStamp(snapshot) > snapshotStamp(snapshots[slug])) {
@@ -468,6 +486,7 @@ export function mergeRemote(
               (PRICE_UNITS as readonly number[]).includes(unit),
             ),
           ) as Record<string, PriceUnit>,
+          serverUrls: cleanServerUrls(snapshot.settings.serverUrls),
         };
       }
     }

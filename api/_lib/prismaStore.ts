@@ -1,5 +1,5 @@
 import prismaPackage, { type PrismaClient } from '@prisma/client';
-import type { WorkspaceStore } from './store.js';
+import type { VersionMeta, VersionRow, VersionStatus, WorkspaceStore } from './store.js';
 
 /**
  * The shared workspace in Postgres, through Prisma (schema: prisma/schema.prisma).
@@ -102,5 +102,63 @@ export function prismaStore(prisma: PrismaClient): WorkspaceStore {
         update: { record, stamp },
       });
     },
+
+    async listVersions(slug) {
+      const rows = await prisma.draftVersion.findMany({
+        where: { slug },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, slug: true, label: true, status: true, note: true, createdAt: true, createdBy: true },
+      });
+      return rows.map((r) => toMeta(r));
+    },
+
+    async readVersion(slug, id) {
+      const row = await prisma.draftVersion.findFirst({ where: { slug, id } });
+      return row ? { ...toMeta(row), record: row.record } : null;
+    },
+
+    async countVersions(slug) {
+      return prisma.draftVersion.count({ where: { slug } });
+    },
+
+    async addVersion(row) {
+      const data = { ...row, createdAt: new Date(row.createdAt) };
+      if (row.status !== 'actual') {
+        await prisma.draftVersion.create({ data });
+        return;
+      }
+      await prisma.$transaction([
+        prisma.draftVersion.updateMany({ where: { slug: row.slug, status: 'actual' }, data: { status: 'draft' } }),
+        prisma.draftVersion.create({ data }),
+      ]);
+    },
+
+    async updateVersion(slug, id, patch) {
+      const data = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+      const update = prisma.draftVersion.updateMany({ where: { slug, id }, data });
+      if (patch.status !== 'actual') return (await update).count === 1;
+      const [, result] = await prisma.$transaction([
+        prisma.draftVersion.updateMany({ where: { slug, status: 'actual', NOT: { id } }, data: { status: 'draft' } }),
+        update,
+      ]);
+      return result.count === 1;
+    },
+
+    async deleteVersion(slug, id) {
+      const { count } = await prisma.draftVersion.deleteMany({ where: { slug, id } });
+      return count === 1;
+    },
+  };
+}
+
+function toMeta(row: Omit<VersionRow, 'record' | 'createdAt' | 'status'> & { status: string; createdAt: Date }): VersionMeta {
+  return {
+    id: row.id,
+    slug: row.slug,
+    label: row.label,
+    status: (row.status === 'actual' ? 'actual' : 'draft') as VersionStatus,
+    note: row.note,
+    createdAt: row.createdAt.toISOString(),
+    createdBy: row.createdBy,
   };
 }

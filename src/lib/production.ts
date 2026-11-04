@@ -30,10 +30,54 @@ export const API_BASES: Record<Server, string> = {
   dev: '/api/musticker-dev',
 };
 
+/**
+ * Where each server's quotation API lives. Settings can change these for
+ * everyone (e.g. when the dev server moves). A default URL goes through the
+ * static rewrite above; any other goes through /api/upstream (api/upstream.ts),
+ * which only proxies https hosts under musticker.com.
+ */
+export const DEFAULT_SERVER_URLS: Record<Server, string> = {
+  production: 'https://api.musticker.com/index.php/sys/kr',
+  dev: 'https://dev-static-1-api.musticker.com/index.php/sys/kr',
+};
+
+/** Hostname per server, for labels. Kept in step with the configured URLs. */
 export const SERVER_HOSTS: Record<Server, string> = {
   production: 'api.musticker.com',
   dev: 'dev-static-1-api.musticker.com',
 };
+
+const serverUrls: Record<Server, string> = { ...DEFAULT_SERVER_URLS };
+
+/**
+ * A server URL as stored: https, no trailing slash, no query. Null when the
+ * input is not one — or is not under musticker.com, which the proxy refuses.
+ */
+export function normalizeServerUrl(input: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(input.trim());
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  if (url.protocol !== 'https:' || url.search || url.hash || url.username || url.password) return null;
+  if (host !== 'musticker.com' && !host.endsWith('.musticker.com')) return null;
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+/** Point quotations at these servers; a blank or invalid URL means the default. */
+export function configureServers(urls: Partial<Record<Server, string>>): void {
+  for (const server of Object.keys(DEFAULT_SERVER_URLS) as Server[]) {
+    const url = (urls[server] && normalizeServerUrl(urls[server]!)) || DEFAULT_SERVER_URLS[server];
+    serverUrls[server] = url;
+    SERVER_HOSTS[server] = new URL(url).host;
+  }
+}
+
+export function serverUrl(server: Server): string {
+  return serverUrls[server];
+}
 
 export interface ProductionPrice {
   quantity: number;
@@ -92,7 +136,7 @@ export interface ProductionSnapshot {
    * Only on the shared-settings record (see SETTINGS_KEY in state/workspace),
    * which rides on snapshot storage: settings everyone shares.
    */
-  settings?: { options: unknown; compareRounding: Record<string, number> };
+  settings?: { options: unknown; compareRounding: Record<string, number>; serverUrls?: Partial<Record<Server, string>> };
   /** When this snapshot was last written (a merge keeps fetchedAt). Decides which copy is newer when syncing. */
   savedAt?: string;
   /** Keyed by `sizeKey(width, height)`. */
@@ -110,10 +154,14 @@ export function quotationUrl(
   quantity?: number,
   extra: Record<string, string> = {},
   server: Server = 'production',
+  /** Quote this base URL instead of the configured one (Settings → Test). */
+  baseUrl: string = serverUrls[server],
 ): string {
   const params = new URLSearchParams({ width: String(width), height: String(height), ...extra });
   if (quantity != null) params.set('quantity', String(quantity));
-  return `${API_BASES[server]}/pricing/quotation/${encodeURIComponent(slug)}?${params}`;
+  const path = `pricing/quotation/${encodeURIComponent(slug)}`;
+  if (baseUrl === DEFAULT_SERVER_URLS[server]) return `${API_BASES[server]}/${path}?${params}`;
+  return `/api/upstream?${new URLSearchParams({ __base: baseUrl, __path: path })}&${params}`;
 }
 
 function num(value: unknown): number | null {
@@ -184,23 +232,30 @@ export async function fetchProductionQuote(
   width: number,
   height: number,
   /** `params`: a variant's extra options, e.g. { color_id: '11' }. */
-  options: { quantity?: number; signal?: AbortSignal; params?: Record<string, string>; server?: Server } = {},
+  options: { quantity?: number; signal?: AbortSignal; params?: Record<string, string>; server?: Server; baseUrl?: string } = {},
 ): Promise<ProductionQuote> {
+  const server = options.server ?? 'production';
+  const host = options.baseUrl ? new URL(options.baseUrl).host : SERVER_HOSTS[server];
   let response: Response;
   try {
-    response = await fetch(quotationUrl(slug, width, height, options.quantity, options.params, options.server), {
+    response = await fetch(quotationUrl(slug, width, height, options.quantity, options.params, server, options.baseUrl), {
       signal: options.signal,
     });
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw err;
-    throw new Error(`Could not reach ${SERVER_HOSTS[options.server ?? 'production']}.`);
+    throw new Error(`Could not reach ${host}.`);
   }
 
   let json: unknown;
   try {
-    json = await response.json();
+    json = await response.clone().json();
   } catch {
-    throw new Error(`Production API answered ${response.status} without JSON.`);
+    const detail = (await response.text().catch(() => '')).trim().split(/\r?\n/).find(Boolean)?.slice(0, 160);
+    // Vercel's rewrite answers 502 DNS_HOSTNAME_EMPTY when the host has no DNS record.
+    if (/DNS_HOSTNAME|ENOTFOUND|EAI_AGAIN/.test(detail ?? '') || response.headers.get('x-vercel-error')?.startsWith('DNS')) {
+      throw new Error(`${host} does not resolve (no DNS record). Check the server URL in Settings.`);
+    }
+    throw new Error(`${host} answered ${response.status} without JSON${detail ? `: ${detail}` : ''}.`);
   }
   return parseQuotationResponse(json, width, height);
 }

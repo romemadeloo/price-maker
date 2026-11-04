@@ -246,7 +246,20 @@ Overview, *Show* switches the chart between the production and Studio Editor
 comparisons; *Server* between production and dev results.
 
 **Dev server** — every comparison can also run against the staging API,
-`dev-static-1-api.musticker.com` (proxied at `/api/musticker-dev`). The
+`dev-static-1-api.musticker.com` (proxied at `/api/musticker-dev`).
+Both server URLs can be changed for everyone under **Settings** (gear in the
+dock). A default URL uses the static rewrite in `vercel.json`; any other goes
+through `api/upstream.ts`, which only proxies https hosts under musticker.com
+(add more with `UPSTREAM_ALLOWED_HOSTS`) and only `pricing/quotation` paths.
+With Dev selected, the compare tabs read **Compare to Development** and
+**Dev Studio Editor**.
+
+**Versions** — the *Versions* button on a price list saves the table as a
+named version marked **Draft** or **Actual** (one actual per list; shown as a
+chip in the header). Each version can be compared with the table on screen
+(price by price, keyed by base area × quantity), restored (an ordinary,
+undoable edit) or deleted. Versions live in the `draft_versions` table, so
+they need the shared database. The
 *Server: Production | Dev* switch on the Overview and both compare tabs picks
 which one you see and fetch; dev results are stored separately
 (`<key>@dev`, `<key>@dev-studio`) so they never mix with production's, and the

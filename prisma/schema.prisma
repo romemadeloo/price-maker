@@ -36,3 +36,21 @@ model Snapshot {
 
   @@map("snapshots")
 }
+
+/// A saved copy of a product's price table: version history for drafts.
+/// `status` is "draft" or "actual" (the prices that are live); at most one
+/// "actual" per product — see updateVersion in api/_lib/prismaStore.ts.
+model DraftVersion {
+  id        String   @id
+  slug      String
+  label     String
+  status    String
+  note      String?
+  /// JSON: { sheet }.
+  record    String
+  createdAt DateTime @default(now())
+  createdBy String?
+
+  @@index([slug, createdAt])
+  @@map("draft_versions")
+}

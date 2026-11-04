@@ -6,6 +6,9 @@ import RateTable from './RateTable';
 import CsvPreview from './CsvPreview';
 import Calculator from './Calculator';
 import ImportDialog from './ImportDialog';
+import VersionsDialog from './VersionsDialog';
+import { listVersions, type StoredSheet, type VersionMeta } from '../lib/versions';
+import { hydrateSheet } from '../state/workspace';
 import ProductionCompare from './ProductionCompare';
 import {
   CalculatorIcon,
@@ -13,6 +16,7 @@ import {
   CompareIcon,
   ExternalIcon,
   FileIcon,
+  HistoryIcon,
   MenuIcon,
   RateIcon,
   ShieldIcon,
@@ -38,14 +42,15 @@ import type { PriceUnit } from '../lib/calculator';
 
 export type Tab = 'table' | 'rates' | 'calculator' | 'validation' | 'csv' | 'compare' | 'studio';
 
-const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
+const tabs = (server: Server): { id: Tab; label: string; icon: ReactNode }[] => [
   { id: 'table', label: 'Price Table', icon: <TableIcon /> },
   { id: 'rates', label: 'Price Per mm²', icon: <RateIcon /> },
   { id: 'calculator', label: 'Calculator', icon: <CalculatorIcon /> },
   { id: 'validation', label: 'Validation', icon: <ShieldIcon /> },
   { id: 'csv', label: 'CSV Preview', icon: <FileIcon /> },
-  { id: 'compare', label: 'Compare to Production', icon: <CompareIcon /> },
-  { id: 'studio', label: 'Studio Editor', icon: <SparkIcon /> },
+  // Named for the server picked with the Production | Dev switch.
+  { id: 'compare', label: server === 'dev' ? 'Compare to Development' : 'Compare to Production', icon: <CompareIcon /> },
+  { id: 'studio', label: server === 'dev' ? 'Dev Studio Editor' : 'Studio Editor', icon: <SparkIcon /> },
 ];
 
 /** Wait this long after the last keystroke before recalculating (spec §20). */
@@ -86,6 +91,8 @@ interface Props {
   tab: Tab;
   onTabChange: (tab: Tab) => void;
   onOpenNav: () => void;
+  /** Recorded on versions saved from here. */
+  userName: string;
 }
 
 /**
@@ -118,6 +125,7 @@ export default function ProductWorkspace({
   tab,
   onTabChange,
   onOpenNav,
+  userName,
 }: Props) {
   const { product, variant } = priceList;
   // The sheet lives inside an undo history; every edit, paste, insert, delete,
@@ -128,6 +136,23 @@ export default function ProductWorkspace({
   const sheet = history.present;
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  /** This list's saved versions: null while loading, an Error when unavailable. */
+  const [versions, setVersions] = useState<VersionMeta[] | null | Error>(null);
+  const reloadVersions = useCallback(async () => {
+    try {
+      setVersions(await listVersions(priceList.key));
+    } catch (err) {
+      setVersions(err as Error);
+    }
+  }, [priceList.key]);
+  useEffect(() => void reloadVersions(), [reloadVersions]);
+  const actualVersion = Array.isArray(versions) ? (versions.find((v) => v.status === 'actual') ?? null) : null;
+  const [restored, setRestored] = useState<string | null>(null);
+  const restoreVersion = useCallback((stored: StoredSheet, version: VersionMeta) => {
+    dispatch({ type: 'replaceAll', sheet: hydrateSheet(stored) });
+    setRestored(version.label);
+  }, []);
   const [recalcNonce, setRecalcNonce] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -251,6 +276,20 @@ export default function ProductWorkspace({
                   ? `Saved ${timeAgo(updatedAt)}${updatedBy ? ` by ${updatedBy}` : ''}`
                   : 'No draft yet'}
               </span>
+              {actualVersion && (
+                <button
+                  onClick={() => setVersionsOpen(true)}
+                  className="rounded-md bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200 hover:bg-emerald-100"
+                  title={`Marked actual ${timeAgo(actualVersion.createdAt)}${actualVersion.createdBy ? ` by ${actualVersion.createdBy}` : ''}`}
+                >
+                  Actual: {actualVersion.label}
+                </button>
+              )}
+              {restored && (
+                <span className="rounded-md bg-brand-50 px-1.5 py-0.5 font-medium text-brand-700">
+                  Restored “{restored}” — Undo to go back
+                </span>
+              )}
               {unsynced && (
                 <span className="rounded-md bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
                   Not shared yet
@@ -268,6 +307,17 @@ export default function ProductWorkspace({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="btn btn-default"
+              onClick={() => setVersionsOpen(true)}
+              title="Save this table as a version, compare, restore, or mark which one is actual"
+            >
+              <HistoryIcon width={14} height={14} />
+              Versions
+              {Array.isArray(versions) && versions.length > 0 && (
+                <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold text-slate-600">{versions.length}</span>
+              )}
+            </button>
             <button
               className="btn btn-default"
               onClick={() => {
@@ -295,7 +345,7 @@ export default function ProductWorkspace({
 
         {/* ------------------------------------------------ tabs */}
         <nav className="flex gap-1.5 overflow-x-auto px-4 pb-1 sm:px-7">
-          {TABS.map((t) => {
+          {tabs(server).map((t) => {
             const problems = result.summary.mismatched + result.summary.invalidInput;
             const badge =
               t.id === 'validation' && problems > 0 ? (
@@ -455,6 +505,17 @@ export default function ProductWorkspace({
       </main>
 
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={importText} />
+      <VersionsDialog
+        open={versionsOpen}
+        onClose={() => setVersionsOpen(false)}
+        slug={priceList.key}
+        listName={priceListName(priceList)}
+        sheet={sheet}
+        userName={userName}
+        versions={versions}
+        reload={reloadVersions}
+        onRestore={restoreVersion}
+      />
     </div>
   );
 }

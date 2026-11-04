@@ -5,9 +5,10 @@ import TopBar from './components/TopBar';
 import type { SyncScope } from './components/SyncPrices';
 import { useBulkCompare } from './hooks/useBulkCompare';
 import Overview from './components/Overview';
+import Settings from './components/Settings';
 import ProductWorkspace, { type Tab } from './components/ProductWorkspace';
 import { findPriceList, PRICE_LISTS } from './lib/products';
-import type { ProductionSnapshot, Server } from './lib/production';
+import { configureServers, type ProductionSnapshot, type Server } from './lib/production';
 import { useCloudSync } from './hooks/useCloudSync';
 import {
   isBlankSheet,
@@ -28,12 +29,14 @@ const SAVE_DEBOUNCE_MS = 300;
 
 export default function App() {
   const [workspace, setWorkspace] = useState<Workspace>(loadWorkspace);
-  const [view, setView] = useState<'overview' | 'product'>('product');
+  const [view, setView] = useState<'overview' | 'product' | 'settings'>('product');
   const [tab, setTab] = useState<Tab>('table');
   const [navOpen, setNavOpen] = useState(false);
   const [saved, setSaved] = useState(true);
   const latest = useRef(workspace);
   latest.current = workspace;
+  // Server URLs from Settings, applied before anything below renders or fetches.
+  configureServers(workspace.serverUrls);
 
   // The active price list: a product, or one color group of it.
   const list = findPriceList(workspace.activeSlug) ?? PRICE_LISTS[0];
@@ -143,6 +146,10 @@ export default function App() {
   const setServer = useCallback((next: Server) => setWorkspace((ws) => ({ ...ws, server: next })), []);
   // Shared with everyone through the database (see withSettings).
   const setOptions = useCallback((options: EngineOptions) => setWorkspace((ws) => withSettings(ws, { options })), []);
+  const setServerUrls = useCallback(
+    (serverUrls: Partial<Record<Server, string>>) => setWorkspace((ws) => withSettings(ws, { serverUrls })),
+    [],
+  );
   const setUserName = useCallback((userName: string) => setWorkspace((ws) => ({ ...ws, userName })), []);
   const setCompareRounding = useCallback(
     (unit: PriceUnit) =>
@@ -181,14 +188,15 @@ export default function App() {
     <div className="flex h-screen overflow-hidden bg-[#f5f6fa]">
       <NavRail
         active={
-          view === 'overview'
-            ? 'overview'
+          view === 'overview' || view === 'settings'
+            ? view
             : tab === 'compare' || tab === 'studio' || tab === 'table'
               ? tab
               : null
         }
+        server={server}
         onNavigate={(target: RailTarget) => {
-          if (target === 'overview') setView('overview');
+          if (target === 'overview' || target === 'settings') setView(target);
           else {
             setView('product');
             setTab(target);
@@ -221,7 +229,15 @@ export default function App() {
           bulk={bulk}
           draftedIn={draftedIn}
         />
-        {view === 'overview' ? (
+        {view === 'settings' ? (
+          <Settings
+            serverUrls={workspace.serverUrls}
+            onServerUrls={setServerUrls}
+            options={workspace.options}
+            onOptions={setOptions}
+            onOpenNav={() => setNavOpen(true)}
+          />
+        ) : view === 'overview' ? (
           <Overview
             statuses={statuses}
             onSelectProduct={(key) => {
@@ -264,6 +280,7 @@ export default function App() {
             tab={tab}
             onTabChange={setTab}
             onOpenNav={() => setNavOpen(true)}
+            userName={workspace.userName}
           />
         )}
       </div>

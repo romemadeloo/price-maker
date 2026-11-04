@@ -6,7 +6,7 @@ import type { ProductStatus } from '../state/workspace';
 import { ChevronIcon, CloseIcon, GridIcon, SearchIcon } from './icons';
 
 interface Props {
-  view: 'overview' | 'product';
+  view: 'overview' | 'product' | 'settings';
   activeSlug: string;
   statuses: Record<string, ProductStatus>;
   onSelectProduct: (slug: string) => void;
