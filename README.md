@@ -246,7 +246,7 @@ Overview, *Show* switches the chart between the production and Studio Editor
 comparisons; *Server* between production and dev results.
 
 **Dev server** — every comparison can also run against the staging API,
-`dev-static-1-api.musticker.com` (proxied at `/api/musticker-dev`).
+`shared-dev-static-api.musticker.com` (proxied at `/api/musticker-dev`).
 Both server URLs can be changed for everyone under **Settings** (gear in the
 dock). A default URL uses the static rewrite in `vercel.json`; any other goes
 through `api/upstream.ts`, which only proxies https hosts under musticker.com

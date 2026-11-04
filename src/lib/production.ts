@@ -20,7 +20,7 @@ export const PRODUCTION_API_BASE = '/api/musticker';
 
 /**
  * Which musticker server to quote: the live site, or the dev/staging one
- * (dev-static-1-api.musticker.com), where new price books land before they go
+ * (shared-dev-static-api.musticker.com), where new price books land before they go
  * live. Both are reached through the same-origin proxy.
  */
 export type Server = 'production' | 'dev';
@@ -38,13 +38,13 @@ export const API_BASES: Record<Server, string> = {
  */
 export const DEFAULT_SERVER_URLS: Record<Server, string> = {
   production: 'https://api.musticker.com/index.php/sys/kr',
-  dev: 'https://dev-static-1-api.musticker.com/index.php/sys/kr',
+  dev: 'https://shared-dev-static-api.musticker.com/index.php/sys/kr',
 };
 
 /** Hostname per server, for labels. Kept in step with the configured URLs. */
 export const SERVER_HOSTS: Record<Server, string> = {
   production: 'api.musticker.com',
-  dev: 'dev-static-1-api.musticker.com',
+  dev: 'shared-dev-static-api.musticker.com',
 };
 
 const serverUrls: Record<Server, string> = { ...DEFAULT_SERVER_URLS };
