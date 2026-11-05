@@ -15,7 +15,6 @@ interface Props {
   onOpenNav: () => void;
   /** Which musticker server's comparisons the chart shows. */
   server: Server;
-  onServer: (server: Server) => void;
 }
 
 type Source = 'production' | 'studio';
@@ -44,7 +43,7 @@ const matchRate = (c: CompareSummary) => pct(c.same, c.compared);
  * lists not compared or not drafted yet follow, so the whole catalog is
  * always on one page.
  */
-export default function Overview({ statuses, onSelectProduct, onOpenCompare, onOpenNav, server, onServer }: Props) {
+export default function Overview({ statuses, onSelectProduct, onOpenCompare, onOpenNav, server }: Props) {
   const [filter, setFilter] = useState<Filter>('all');
   const [source, setSource] = useState<Source>('production');
   const [tip, setTip] = useState<Tip | null>(null);
@@ -102,17 +101,6 @@ export default function Overview({ statuses, onSelectProduct, onOpenCompare, onO
 
         {/* ------------------------------------------------ what to show ("Sync prices" is in the top bar) */}
         <div className="mx-6 mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl bg-slate-50 px-4 py-2.5">
-          <label className="flex items-center gap-2 text-xs text-slate-500">
-            Server
-            <Seg
-              value={server}
-              onChange={onServer}
-              options={[
-                ['production', 'Production'],
-                ['dev', 'Dev'],
-              ]}
-            />
-          </label>
           <label className="flex items-center gap-2 text-xs text-slate-500">
             Show
             <Seg

@@ -183,15 +183,6 @@ export default function ProductionCompare({
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs font-medium text-slate-500">Server</span>
-            <Seg
-              value={server}
-              onChange={onServer}
-              options={[
-                ['production', 'Production'],
-                ['dev', 'Dev'],
-              ]}
-            />
             {snapshot && (
               <button
                 className={`btn ${spotOpen ? 'btn-primary' : 'btn-default'}`}

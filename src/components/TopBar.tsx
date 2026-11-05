@@ -5,6 +5,7 @@ import type { EngineOptions } from '../types';
 import type { BulkCompare } from '../hooks/useBulkCompare';
 import type { PriceList } from '../lib/products';
 import SyncPrices, { type SyncScope } from './SyncPrices';
+import type { Server } from '../lib/production';
 
 export const USER_NAME_INPUT_ID = 'pricer-user-name';
 
@@ -20,6 +21,9 @@ interface Props {
   /** "Sync prices": fetch production and dev prices for many lists at once. */
   bulk: BulkCompare;
   draftedIn: (scope: SyncScope) => PriceList[];
+  /** Which musticker server every comparison and quote uses. */
+  server: Server;
+  onServer: (server: Server) => void;
 }
 
 /**
@@ -36,9 +40,29 @@ export default function TopBar({
   setOptions,
   bulk,
   draftedIn,
+  server,
+  onServer,
 }: Props) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 px-4 pt-4 sm:px-7">
+      <div
+        className="flex items-center gap-2 rounded-full bg-white py-1 pl-3.5 pr-1 text-xs text-slate-500 shadow-sm ring-1 ring-slate-200/70"
+        title="Which musticker server comparisons and quotes use"
+      >
+        Server
+        <div className="seg bg-white">
+          {(
+            [
+              ['production', 'Production'],
+              ['dev', 'Dev'],
+            ] as [Server, string][]
+          ).map(([value, label]) => (
+            <button key={value} aria-pressed={server === value} onClick={() => onServer(value)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <SyncStatus sync={sync} browserSaved={browserSaved} pendingCount={pendingCount} />
       <SyncPrices bulk={bulk} draftedIn={draftedIn} />
 

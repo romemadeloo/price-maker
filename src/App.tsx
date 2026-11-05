@@ -228,6 +228,8 @@ export default function App() {
           setOptions={setOptions}
           bulk={bulk}
           draftedIn={draftedIn}
+          server={server}
+          onServer={setServer}
         />
         {view === 'settings' ? (
           <Settings
@@ -250,7 +252,6 @@ export default function App() {
             }}
             onOpenNav={() => setNavOpen(true)}
             server={server}
-            onServer={setServer}
           />
         ) : (
           <ProductWorkspace
