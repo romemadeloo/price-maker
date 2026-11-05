@@ -12,17 +12,23 @@ import {
 } from '../lib/calculator';
 import { parseNumeric, parseSize } from '../lib/parse';
 import { D, formatDifference, formatKrw, groupDigits } from '../lib/decimal';
+import { adjustPrice, type PriceAdjustment } from '../lib/production';
 
 interface Props {
   result: EngineResult;
   options: EngineOptions;
+  /**
+   * Quote Studio Editor prices: the normal quote, then this discount applied
+   * the way production applies it (price × rate, rounded to the unit).
+   */
+  studioAdjustment?: PriceAdjustment | null;
 }
 
 /**
  * Prices a size/quantity that falls between the rows and columns of the price
  * book, and shows exactly which rates and base area produced the answer.
  */
-export default function Calculator({ result, options }: Props) {
+export default function Calculator({ result, options, studioAdjustment = null }: Props) {
   const [width, setWidth] = useState('');
   const [height, setHeight] = useState('');
   const [typedArea, setTypedArea] = useState('');
@@ -101,6 +107,17 @@ export default function Calculator({ result, options }: Props) {
           <Field label="Quantity" value={quantity} onChange={setQuantity} placeholder="123" />
         </Panel>
 
+        {studioAdjustment && (
+          <Panel title="Studio Editor">
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              Studio price = normal price × <Num>{studioAdjustment.rate}</Num>, rounded to the nearest ₩
+              {studioAdjustment.normalizedBy}
+              {studioAdjustment.description ? ` — ${studioAdjustment.description}` : ''}. The same rule
+              production applies to Studio Editor quotes.
+            </p>
+          </Panel>
+        )}
+
         <Panel title="Pricing rules">
           <Control
             label="Price unit"
@@ -162,7 +179,7 @@ export default function Calculator({ result, options }: Props) {
         ) : calc.errors.length > 0 ? (
           <Notice tone="neutral" title="Nothing to calculate yet" items={calc.errors} />
         ) : (
-          <Answer calc={calc} />
+          <Answer calc={calc} studio={studioAdjustment} />
         )}
       </section>
     </div>
@@ -182,8 +199,9 @@ function areaFromDimensions(width: string, height: string): string {
 /* The answer                                                          */
 /* ================================================================== */
 
-function Answer({ calc }: { calc: CalculatorResult }) {
+function Answer({ calc, studio }: { calc: CalculatorResult; studio: PriceAdjustment | null }) {
   const interpolated = calc.area?.kind !== 'exact' || calc.qty?.kind !== 'exact';
+  const studioPrice = studio ? adjustPrice(Number(calc.price), studio) : null;
 
   return (
     <div className="flex flex-col gap-4 pb-2">
@@ -195,13 +213,18 @@ function Answer({ calc }: { calc: CalculatorResult }) {
       <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-6 px-5 pb-4 pt-4">
           <div className="min-w-0">
-            <Label>Quote</Label>
+            <Label>{studio ? 'Studio Editor quote' : 'Quote'}</Label>
             <div className="mt-1 text-[40px] font-semibold leading-none tracking-tight text-slate-900 tabular-nums">
-              {formatKrw(calc.price as string)}
+              {formatKrw(String(studioPrice ?? calc.price))}
             </div>
+            {studio && (
+              <div className="mt-1.5 text-xs text-slate-500 tabular-nums">
+                normal price {formatKrw(calc.price as string)} × {studio.rate}, rounded to ₩{studio.normalizedBy}
+              </div>
+            )}
             {calc.normalized && calc.roundTo > 1 && (
               <div className="mt-1.5 text-xs text-slate-500 tabular-nums">
-                from {formatKrw(calc.rawPrice as string)}, normalized to the nearest ₩{calc.roundTo}
+                {studio ? 'normal price ' : ''}from {formatKrw(calc.rawPrice as string)}, normalized to the nearest ₩{calc.roundTo}
               </div>
             )}
           </div>
@@ -254,7 +277,7 @@ function Answer({ calc }: { calc: CalculatorResult }) {
 
         {calc.alternatePrice != null && (
           <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-600">
-            {calc.mode === 'staged' ? 'Blending the rates' : 'The staged method'} instead would quote{' '}
+            {calc.mode === 'staged' ? 'Blending the rates' : 'The staged method'} instead would quote{studio ? ' a normal price of' : ''}{' '}
             <span className="font-semibold tabular-nums text-slate-900">{formatKrw(calc.alternatePrice)}</span>
             <span className="tabular-nums text-slate-400">
               {' '}
@@ -276,6 +299,20 @@ function Answer({ calc }: { calc: CalculatorResult }) {
         </div>
 
         {calc.dimensionStage.length > 0 && <Stages calc={calc} />}
+
+        {studio && studioPrice != null && (
+          <div className="mt-4">
+            <SubLabel>Studio Editor discount</SubLabel>
+            <Formula>
+              {formatKrw(calc.price as string)} × {studio.rate} ={' '}
+              {formatKrw(new D(calc.price as string).times(studio.rate).toFixed())}
+              {'\n'}on ₩{studio.normalizedBy} = {formatKrw(String(studioPrice))}
+              {'  ('}
+              {formatDifference(new D(studioPrice).minus(calc.price as string).toFixed())}
+              {')'}
+            </Formula>
+          </div>
+        )}
 
         {calc.blendedRate != null && (
           <div className="mt-4">

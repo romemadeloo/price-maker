@@ -30,7 +30,7 @@ import { parseDelimited } from '../lib/parse';
 import { CATEGORIES, priceListName, productUrl, type PriceList } from '../lib/products';
 import Swatches from './Swatches';
 import ProductThumb from './ProductThumb';
-import { compareDraft, STUDIO_ADJUSTMENT, type ProductionSnapshot, type Server } from '../lib/production';
+import { compareDraft, STUDIO_ADJUSTMENT, type PriceAdjustment, type ProductionSnapshot, type Server } from '../lib/production';
 import { timeAgo } from '../lib/format';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { DEFAULT_QUANTITIES, emptySheet, matrixToSheet, nextRowId } from '../state/sheetReducer';
@@ -40,12 +40,17 @@ import type { EngineOptions, SheetState } from '../types';
 import type { CompareMode, HeldDraft } from '../state/workspace';
 import type { PriceUnit } from '../lib/calculator';
 
-export type Tab = 'table' | 'rates' | 'calculator' | 'validation' | 'csv' | 'compare' | 'studio';
+export type Tab = 'table' | 'rates' | 'calculator' | 'studioCalculator' | 'validation' | 'csv' | 'compare' | 'studio';
 
 const tabs = (server: Server): { id: Tab; label: string; icon: ReactNode }[] => [
   { id: 'table', label: 'Price Table', icon: <TableIcon /> },
   { id: 'rates', label: 'Price Per mm²', icon: <RateIcon /> },
   { id: 'calculator', label: 'Calculator', icon: <CalculatorIcon /> },
+  {
+    id: 'studioCalculator',
+    label: server === 'dev' ? 'Dev Studio Calculator' : 'Studio Calculator',
+    icon: <CalculatorIcon />,
+  },
   { id: 'validation', label: 'Validation', icon: <ShieldIcon /> },
   { id: 'csv', label: 'CSV Preview', icon: <FileIcon /> },
   // Named for the server picked with the Production | Dev switch.
@@ -93,6 +98,14 @@ interface Props {
   onOpenNav: () => void;
   /** Recorded on versions saved from here. */
   userName: string;
+}
+
+/** The Studio Editor discount production reports in its quotes, or the known default. */
+function studioAdjustmentOf(snapshot: ProductionSnapshot | null): PriceAdjustment {
+  for (const entry of Object.values(snapshot?.quotes ?? {})) {
+    if (entry.ok && entry.quote.adjustment) return entry.quote.adjustment;
+  }
+  return STUDIO_ADJUSTMENT;
 }
 
 /**
@@ -242,7 +255,7 @@ export default function ProductWorkspace({
   };
 
   const category = CATEGORIES.find((c) => c.id === product.category);
-  const showSummary = tab !== 'compare' && tab !== 'studio' && tab !== 'calculator';
+  const showSummary = tab !== 'compare' && tab !== 'studio' && tab !== 'calculator' && tab !== 'studioCalculator';
 
   return (
     <div className="flex h-full min-w-0 flex-col">
@@ -456,6 +469,15 @@ export default function ProductWorkspace({
         {tab === 'rates' && <RateTable result={result} />}
 
         {tab === 'calculator' && <Calculator result={result} options={options} />}
+
+        {tab === 'studioCalculator' && (
+          <Calculator
+            key="studio"
+            result={result}
+            options={options}
+            studioAdjustment={studioAdjustmentOf(studioSnapshot)}
+          />
+        )}
 
         {tab === 'validation' && <ValidationTable result={result} onGoToCell={goToCell} />}
 
