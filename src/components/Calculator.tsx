@@ -37,6 +37,37 @@ export default function Calculator({ result, options, studioAdjustment = null }:
   const [mode, setMode] = useState<InterpolationMode>('staged');
   const [chosenUnit, setChosenUnit] = useState<PriceUnit | null>(null);
 
+  // Studio Editor discount: starts at production's rule, editable because it can change at any time.
+  const defaultPct = studioAdjustment ? trimNumber((1 - studioAdjustment.rate) * 100) : '';
+  const defaultStep = studioAdjustment ? String(studioAdjustment.normalizedBy) : '';
+  const [discount, setDiscount] = useState(() => loadDiscount()?.pct ?? defaultPct);
+  const [discountStep, setDiscountStep] = useState(() => loadDiscount()?.step ?? defaultStep);
+  const pctValue = Number(discount);
+  const stepValue = Number(discountStep);
+  // An empty box means "production's value"; only something typed and unusable is an error.
+  const pctBlank = discount.trim() === '';
+  const stepBlank = discountStep.trim() === '';
+  const pctValid = pctBlank || (Number.isFinite(pctValue) && pctValue >= 0 && pctValue < 100);
+  const stepValid = stepBlank || (Number.isInteger(stepValue) && stepValue >= 1);
+  const discountEdited = (!pctBlank && discount !== defaultPct) || (!stepBlank && discountStep !== defaultStep);
+  const studioRule: PriceAdjustment | null = useMemo(
+    () =>
+      studioAdjustment
+        ? {
+            rate: pctValid && !pctBlank ? Number((1 - pctValue / 100).toFixed(10)) : studioAdjustment.rate,
+            normalizedBy: stepValid && !stepBlank ? stepValue : studioAdjustment.normalizedBy,
+            description: studioAdjustment.description,
+          }
+        : null,
+    [studioAdjustment, pctValid, pctBlank, pctValue, stepValid, stepBlank, stepValue],
+  );
+  const setDiscountRule = (pct: string, step: string) => {
+    setDiscount(pct);
+    setDiscountStep(step);
+    const usesDefault = (pct.trim() === '' || pct === defaultPct) && (step.trim() === '' || step === defaultStep);
+    saveDiscount(usesDefault ? null : { pct, step });
+  };
+
   const grid = useMemo(() => buildRateGrid(result), [result]);
 
   // The unit the price book itself is quoted on, until the user overrides it.
@@ -107,13 +138,49 @@ export default function Calculator({ result, options, studioAdjustment = null }:
           <Field label="Quantity" value={quantity} onChange={setQuantity} placeholder="123" />
         </Panel>
 
-        {studioAdjustment && (
-          <Panel title="Studio Editor">
+        {studioAdjustment && studioRule && (
+          <Panel title="Studio Editor discount">
+            <div className="flex items-end gap-2.5">
+              <Field
+                label="Discount"
+                suffix="%"
+                value={discount}
+                onChange={(v) => setDiscountRule(v, discountStep)}
+                placeholder={defaultPct}
+                tone={discountEdited ? 'override' : 'derived'}
+              />
+              <Field
+                label="Round to"
+                suffix="₩"
+                value={discountStep}
+                onChange={(v) => setDiscountRule(discount, v)}
+                placeholder={defaultStep}
+                tone={discountEdited ? 'override' : 'derived'}
+              />
+            </div>
+            {(!pctValid || !stepValid) && (
+              <p className="text-[11px] text-red-600">
+                {!pctValid ? 'Enter a discount from 0 to under 100%. ' : ''}
+                {!stepValid ? 'Round to a whole number of won, 1 or more. ' : ''}
+                Using production's rule until then.
+              </p>
+            )}
             <p className="text-[11px] leading-relaxed text-slate-500">
-              Studio price = normal price × <Num>{studioAdjustment.rate}</Num>, rounded to the nearest ₩
-              {studioAdjustment.normalizedBy}
-              {studioAdjustment.description ? ` — ${studioAdjustment.description}` : ''}. The same rule
-              production applies to Studio Editor quotes.
+              Studio price = normal price × <Num>{studioRule.rate}</Num>, rounded to the nearest ₩
+              {groupDigits(studioRule.normalizedBy)}.{' '}
+              {discountEdited ? (
+                <>
+                  Production uses {defaultPct}% and ₩{defaultStep}.{' '}
+                  <button
+                    className="font-medium text-brand-600 underline-offset-2 hover:underline"
+                    onClick={() => setDiscountRule(defaultPct, defaultStep)}
+                  >
+                    Use production's
+                  </button>
+                </>
+              ) : (
+                <>Production's current rule{studioAdjustment.description ? ` — ${studioAdjustment.description}` : ''}.</>
+              )}
             </p>
           </Panel>
         )}
@@ -179,11 +246,38 @@ export default function Calculator({ result, options, studioAdjustment = null }:
         ) : calc.errors.length > 0 ? (
           <Notice tone="neutral" title="Nothing to calculate yet" items={calc.errors} />
         ) : (
-          <Answer calc={calc} studio={studioAdjustment} />
+          <Answer calc={calc} studio={studioRule} />
         )}
       </section>
     </div>
   );
+}
+
+const DISCOUNT_KEY = 'pricer.studioDiscount';
+
+/** A discount typed here earlier in this browser, if it differs from production's. */
+function loadDiscount(): { pct: string; step: string } | null {
+  try {
+    const raw = localStorage.getItem(DISCOUNT_KEY);
+    const v = raw ? JSON.parse(raw) : null;
+    return v && typeof v.pct === 'string' && typeof v.step === 'string' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDiscount(v: { pct: string; step: string } | null): void {
+  try {
+    if (v) localStorage.setItem(DISCOUNT_KEY, JSON.stringify(v));
+    else localStorage.removeItem(DISCOUNT_KEY);
+  } catch {
+    /* storage unavailable: the value still applies for this visit */
+  }
+}
+
+/** 5.000000001 -> "5": float noise off a percentage for display. */
+function trimNumber(n: number): string {
+  return String(Number(n.toFixed(6)));
 }
 
 /** width × height as an exact plain string, or '' when either is unusable. */
@@ -213,21 +307,31 @@ function Answer({ calc, studio }: { calc: CalculatorResult; studio: PriceAdjustm
       <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-6 px-5 pb-4 pt-4">
           <div className="min-w-0">
-            <Label>{studio ? 'Studio Editor quote' : 'Quote'}</Label>
+            <Label>Quote</Label>
             <div className="mt-1 text-[40px] font-semibold leading-none tracking-tight text-slate-900 tabular-nums">
-              {formatKrw(String(studioPrice ?? calc.price))}
+              {formatKrw(calc.price as string)}
             </div>
-            {studio && (
-              <div className="mt-1.5 text-xs text-slate-500 tabular-nums">
-                normal price {formatKrw(calc.price as string)} × {studio.rate}, rounded to ₩{studio.normalizedBy}
-              </div>
-            )}
             {calc.normalized && calc.roundTo > 1 && (
               <div className="mt-1.5 text-xs text-slate-500 tabular-nums">
-                {studio ? 'normal price ' : ''}from {formatKrw(calc.rawPrice as string)}, normalized to the nearest ₩{calc.roundTo}
+                from {formatKrw(calc.rawPrice as string)}, normalized to the nearest ₩{calc.roundTo}
               </div>
             )}
           </div>
+
+          {studio && studioPrice != null && (
+            <div className="min-w-0 border-l border-slate-100 pl-6">
+              <Label>Studio Editor price</Label>
+              <div className="mt-1 text-[40px] font-semibold leading-none tracking-tight text-brand-600 tabular-nums">
+                {formatKrw(String(studioPrice))}
+              </div>
+              <div className="mt-1.5 text-xs text-slate-500 tabular-nums">
+                −{trimNumber((1 - studio.rate) * 100)}%, rounded to ₩{groupDigits(studio.normalizedBy)} ·{' '}
+                {formatDifference(new D(studioPrice).minus(calc.price as string).toFixed())}
+              </div>
+            </div>
+          )}
+
+          <div className="flex-1" />
 
           <div className="text-right">
             <Label>Price per mm²</Label>
@@ -277,7 +381,7 @@ function Answer({ calc, studio }: { calc: CalculatorResult; studio: PriceAdjustm
 
         {calc.alternatePrice != null && (
           <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-600">
-            {calc.mode === 'staged' ? 'Blending the rates' : 'The staged method'} instead would quote{studio ? ' a normal price of' : ''}{' '}
+            {calc.mode === 'staged' ? 'Blending the rates' : 'The staged method'} instead would quote{' '}
             <span className="font-semibold tabular-nums text-slate-900">{formatKrw(calc.alternatePrice)}</span>
             <span className="tabular-nums text-slate-400">
               {' '}

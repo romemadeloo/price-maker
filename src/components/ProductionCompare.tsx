@@ -142,9 +142,9 @@ export default function ProductionCompare({
   const [spotOpen, setSpotOpen] = useState(false);
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-y-auto">
+    <div className="flex h-full flex-col gap-2.5 overflow-y-auto">
       {/* ------------------------------------------------ source, rounding, actions — one compact card */}
-      <section className="card px-4 py-3">
+      <section className="card px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-xs text-slate-500">
             <span className="mr-1 text-sm font-bold text-slate-900">
@@ -230,7 +230,7 @@ export default function ProductionCompare({
           </div>
         </div>
 
-        <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-2.5">
+        <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-2">
           <RoundingControl
             rounding={rounding}
             onRounding={onRounding}
@@ -254,18 +254,20 @@ export default function ProductionCompare({
               {comparison.adjustment?.normalizedBy ?? STUDIO_ADJUSTMENT.normalizedBy} — applied to your draft the same way
             </span>
           )}
+          {(snapshot || otherSnapshot) && (
+            <>
+              <span className="hidden h-4 w-px bg-slate-200 sm:block" />
+              <ServerSummary
+                server={server}
+                onServer={onServer}
+                current={snapshot ? comparison.summary : null}
+                other={otherComparison?.summary ?? null}
+                diff={serverDiff}
+                studio={studio}
+              />
+            </>
+          )}
         </div>
-
-        {(snapshot || otherSnapshot) && (
-          <ServerSummary
-            server={server}
-            onServer={onServer}
-            current={snapshot ? comparison.summary : null}
-            other={otherComparison?.summary ?? null}
-            diff={serverDiff}
-            studio={studio}
-          />
-        )}
 
         {busy && (
           <div className="mt-2.5">
@@ -320,8 +322,8 @@ export default function ProductionCompare({
             />
           )}
 
-          <section ref={fullscreen.ref} style={fullscreen.panelStyle} className={`card flex min-h-[440px] flex-1 flex-col overflow-hidden ${fullscreen.panelClass}`}>
-            <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+          <section ref={fullscreen.ref} style={fullscreen.panelStyle} className={`card flex min-h-[300px] flex-1 flex-col overflow-hidden ${fullscreen.panelClass}`}>
+            <div className="flex flex-wrap items-center gap-2 px-4 py-2">
               <div className="pills">
                 <button aria-pressed={view === 'matrix'} onClick={() => setView('matrix')}>
                   Heatmap
@@ -459,8 +461,8 @@ function StatsStrip({ comparison, against }: { comparison: ReturnType<typeof com
   ].filter((x) => x.n > 0);
 
   return (
-    <section className="card px-5 py-3">
-      <div className="grid grid-cols-2 gap-y-3 sm:grid-cols-3 lg:grid-cols-6 lg:divide-x lg:divide-slate-100">
+    <section className="card px-4 py-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <Stat label="Compared" value={s.compared.toLocaleString()} sub={`${s.rows.toLocaleString()} rows`} />
         <Stat
           label="Match"
@@ -480,7 +482,7 @@ function StatsStrip({ comparison, against }: { comparison: ReturnType<typeof com
           sub={share(s.lower)}
           icon={<ArrowDownIcon width={12} height={12} style={{ color: DIFF.lower }} />}
         />
-        <Stat label="Average Δ" value={signedPct(s.avgDiffPct)} sub={`draft vs ${against}`} />
+        <Stat label="Average Δ" value={signedPct(s.avgDiffPct)} />
         <Stat
           label="Largest gap"
           value={largest ? signedPct(largest.diffPct) : '—'}
@@ -493,7 +495,7 @@ function StatsStrip({ comparison, against }: { comparison: ReturnType<typeof com
       </div>
 
       {s.compared > 0 && (
-        <div className="mt-3 flex h-1.5 gap-[2px]">
+        <div className="mt-1.5 flex h-1 gap-[2px]">
           {segs.map((x, i) => (
             <span
               key={i}
@@ -511,17 +513,13 @@ function StatsStrip({ comparison, against }: { comparison: ReturnType<typeof com
 
 function Stat({ label, value, sub, icon }: { label: string; value: string; sub?: string; icon?: ReactNode }) {
   return (
-    <div className="min-w-0 px-3 first:pl-0">
-      <div className="flex items-center gap-1 text-[11px] font-medium text-slate-400">
+    <div className="flex min-w-0 items-baseline gap-1.5 whitespace-nowrap" title={sub ? `${label}: ${value} · ${sub}` : undefined}>
+      <span className="flex items-center gap-1 self-center text-[11px] text-slate-400">
         {icon}
         {label}
-      </div>
-      <div className="text-lg font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
-      {sub && (
-        <div className="truncate text-[11px] text-slate-400" title={sub}>
-          {sub}
-        </div>
-      )}
+      </span>
+      <span className="text-sm font-bold tabular-nums text-slate-900">{value}</span>
+      {sub && <span className="max-w-[180px] truncate text-[11px] text-slate-400">{sub}</span>}
     </div>
   );
 }
@@ -547,7 +545,7 @@ function Notes({ comparison, against }: { comparison: ReturnType<typeof compareD
   if (notes.length === 0) return null;
 
   return (
-    <div className="mt-2.5 flex flex-wrap gap-1.5">
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
       {notes.map((n, i) => (
         <span
           key={i}
@@ -1204,7 +1202,7 @@ function ServerSummary({
     s && s.compared > 0 ? `${Math.round((s.same / s.compared) * 100)}% match` : s ? 'nothing compared' : 'not fetched';
 
   return (
-    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-slate-100 pt-2.5 text-xs text-slate-500">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-500">
       <span className="font-medium">Draft vs</span>
       {(['production', 'dev'] as const).map((srv) => (
         <button

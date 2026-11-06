@@ -40,17 +40,12 @@ import type { EngineOptions, SheetState } from '../types';
 import type { CompareMode, HeldDraft } from '../state/workspace';
 import type { PriceUnit } from '../lib/calculator';
 
-export type Tab = 'table' | 'rates' | 'calculator' | 'studioCalculator' | 'validation' | 'csv' | 'compare' | 'studio';
+export type Tab = 'table' | 'rates' | 'calculator' | 'validation' | 'csv' | 'compare' | 'studio';
 
 const tabs = (server: Server): { id: Tab; label: string; icon: ReactNode }[] => [
   { id: 'table', label: 'Price Table', icon: <TableIcon /> },
   { id: 'rates', label: 'Price Per mm²', icon: <RateIcon /> },
   { id: 'calculator', label: 'Calculator', icon: <CalculatorIcon /> },
-  {
-    id: 'studioCalculator',
-    label: server === 'dev' ? 'Dev Studio Calculator' : 'Studio Calculator',
-    icon: <CalculatorIcon />,
-  },
   { id: 'validation', label: 'Validation', icon: <ShieldIcon /> },
   { id: 'csv', label: 'CSV Preview', icon: <FileIcon /> },
   { id: 'compare', label: server === 'dev' ? 'Compare to Development' : 'Compare to Production', icon: <CompareIcon /> },
@@ -493,16 +488,10 @@ export default function ProductWorkspace({
 
         {tab === 'rates' && <RateTable result={result} />}
 
-        {tab === 'calculator' && <Calculator result={result} options={options} />}
-
-        {tab === 'studioCalculator' && (
-          <Calculator
-            key="studio"
-            result={result}
-            options={options}
-            studioAdjustment={studioAdjustmentOf(studioSnapshot)}
-          />
+        {tab === 'calculator' && (
+          <Calculator result={result} options={options} studioAdjustment={studioAdjustmentOf(studioSnapshot)} />
         )}
+
 
         {tab === 'validation' && <ValidationTable result={result} onGoToCell={goToCell} />}
 

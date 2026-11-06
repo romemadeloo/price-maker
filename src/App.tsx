@@ -223,6 +223,8 @@ export default function App() {
           serverUrls={workspace.serverUrls}
           onServerUrls={setServerUrls}
         />
+        {/* The page fills what the top bar leaves. */}
+        <div className="min-h-0 flex-1">
         {view === 'settings' ? (
           <Settings
             serverUrls={workspace.serverUrls}
@@ -276,6 +278,7 @@ export default function App() {
             userName={workspace.userName}
           />
         )}
+        </div>
       </div>
     </div>
   );
