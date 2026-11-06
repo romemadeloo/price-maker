@@ -53,7 +53,6 @@ const tabs = (server: Server): { id: Tab; label: string; icon: ReactNode }[] => 
   },
   { id: 'validation', label: 'Validation', icon: <ShieldIcon /> },
   { id: 'csv', label: 'CSV Preview', icon: <FileIcon /> },
-  // Named for the server picked with the Production | Dev switch.
   { id: 'compare', label: server === 'dev' ? 'Compare to Development' : 'Compare to Production', icon: <CompareIcon /> },
   { id: 'studio', label: server === 'dev' ? 'Dev Studio Editor' : 'Studio Editor', icon: <SparkIcon /> },
 ];
@@ -167,6 +166,7 @@ export default function ProductWorkspace({
     setRestored(version.label);
   }, []);
   const [recalcNonce, setRecalcNonce] = useState(0);
+  const [moreOpen, setMoreOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Recalculation runs off the debounced sheet so typing stays responsive; the
@@ -255,24 +255,24 @@ export default function ProductWorkspace({
   };
 
   const category = CATEGORIES.find((c) => c.id === product.category);
-  const showSummary = tab !== 'compare' && tab !== 'studio' && tab !== 'calculator' && tab !== 'studioCalculator';
+  const showSummary = tab === 'table' || tab === 'rates' || tab === 'validation' || tab === 'csv';
 
   return (
     <div className="flex h-full min-w-0 flex-col">
       {/* ------------------------------------------------ header */}
       <header>
-        <div className="flex flex-wrap items-center gap-4 px-4 pb-3 pt-2 sm:px-7">
+        <div className="flex flex-wrap items-center gap-4 px-3 pb-2 pt-2 lg:px-1">
           <button className="btn btn-default mt-1 px-2 lg:hidden" onClick={onOpenNav} aria-label="Open products">
             <MenuIcon />
           </button>
-          <ProductThumb product={product} size={52} />
+          <ProductThumb product={product} size={44} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 text-xs text-slate-400">
               <span>{category?.english}</span>
               <span className="text-slate-300">/</span>
               <span className="font-mono text-[11px]">{priceList.key}</span>
             </div>
-            <h1 className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-2xl font-bold tracking-tight text-slate-900">
+            <h1 className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xl font-bold tracking-tight text-slate-900">
               {product.name}
               <span className="text-sm font-normal text-slate-400">{product.english}</span>
               {variant && (
@@ -320,44 +320,69 @@ export default function ProductWorkspace({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              className="btn btn-default"
-              onClick={() => setVersionsOpen(true)}
-              title="Save this table as a version, compare, restore, or mark which one is actual"
-            >
-              <HistoryIcon width={14} height={14} />
-              Versions
-              {Array.isArray(versions) && versions.length > 0 && (
-                <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold text-slate-600">{versions.length}</span>
-              )}
-            </button>
-            <button
-              className="btn btn-default"
-              onClick={() => {
-                dispatch({ type: 'replaceAll', sheet: buildSampleSheet() });
-                onTabChange('table');
-              }}
-            >
-              <SparkIcon width={14} height={14} />
-              Load sample
-            </button>
             <button className="btn btn-default" onClick={() => setImportOpen(true)}>
               <ClipboardIcon width={14} height={14} />
               Paste data
             </button>
-            <button className="btn btn-default" onClick={() => fileInputRef.current?.click()}>
+            <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()}>
               <UploadIcon width={14} height={14} />
               Import CSV
             </button>
-            <button className="btn btn-danger" onClick={clearTable}>
-              <TrashIcon width={14} height={14} />
-              Clear
-            </button>
+            <div className="relative">
+              <button
+                className="btn btn-default px-2"
+                onClick={() => setMoreOpen((o) => !o)}
+                aria-expanded={moreOpen}
+                aria-label="More actions"
+              >
+                <MoreIcon />
+              </button>
+              {moreOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
+                  <div className="glass absolute right-0 top-full z-50 mt-2 w-48 rounded-xl bg-white/90 p-1.5 text-[13px]" role="menu">
+                    <MenuButton
+                      onClick={() => {
+                        setMoreOpen(false);
+                        setVersionsOpen(true);
+                      }}
+                    >
+                      <HistoryIcon width={14} height={14} />
+                      <span className="flex-1">Versions</span>
+                      {Array.isArray(versions) && versions.length > 0 && (
+                        <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold text-slate-600">{versions.length}</span>
+                      )}
+                    </MenuButton>
+                    <MenuButton
+                      onClick={() => {
+                        setMoreOpen(false);
+                        dispatch({ type: 'replaceAll', sheet: buildSampleSheet() });
+                        onTabChange('table');
+                      }}
+                    >
+                      <SparkIcon width={14} height={14} />
+                      Load sample
+                    </MenuButton>
+                    <div className="my-1 border-t border-slate-200/70" />
+                    <MenuButton
+                      danger
+                      onClick={() => {
+                        setMoreOpen(false);
+                        clearTable();
+                      }}
+                    >
+                      <TrashIcon width={14} height={14} />
+                      Clear table
+                    </MenuButton>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
         {/* ------------------------------------------------ tabs */}
-        <nav className="flex gap-1.5 overflow-x-auto px-4 pb-1 sm:px-7">
+        <nav className="flex gap-1.5 overflow-x-auto px-3 pb-1 lg:px-1">
           {tabs(server).map((t) => {
             const problems = result.summary.mismatched + result.summary.invalidInput;
             const badge =
@@ -376,7 +401,7 @@ export default function ProductWorkspace({
                 className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-medium transition-colors ${
                   active
                     ? 'bg-brand-600 font-semibold text-white shadow-md shadow-brand-600/30'
-                    : 'text-slate-500 hover:bg-white hover:text-slate-800'
+                    : 'text-slate-500 hover:bg-white/70 hover:text-slate-800'
                 }`}
                 aria-current={active ? 'page' : undefined}
               >
@@ -443,7 +468,7 @@ export default function ProductWorkspace({
       />
 
       {showSummary && (
-        <div className="px-4 pt-4 sm:px-7">
+        <div className="px-3 pt-2.5 lg:px-1">
           <SummaryCards
             summary={result.summary}
             roundTrip={result.roundTrip}
@@ -453,7 +478,7 @@ export default function ProductWorkspace({
         </div>
       )}
 
-      <main className="min-h-0 flex-1 overflow-hidden px-4 pb-3 pt-4 sm:px-7">
+      <main className="min-h-0 flex-1 overflow-hidden px-3 pb-3 pt-2.5 lg:px-1">
         {tab === 'table' && (
           <SpreadsheetGrid
             sheet={sheet}
@@ -576,5 +601,29 @@ function SyncBanner({
       </div>
       <div className="flex gap-2">{actions}</div>
     </div>
+  );
+}
+
+function MenuButton({ onClick, danger, children }: { onClick: () => void; danger?: boolean; children: ReactNode }) {
+  return (
+    <button
+      role="menuitem"
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-medium ${
+        danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-100/80'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function MoreIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <circle cx="5" cy="12" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="19" cy="12" r="1.8" />
+    </svg>
   );
 }

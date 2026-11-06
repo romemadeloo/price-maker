@@ -3,7 +3,10 @@ import { CATEGORIES, PRICE_LISTS, PRODUCTS, priceListsOf, type PriceList, type P
 import Swatches from './Swatches';
 import ProductThumb from './ProductThumb';
 import type { ProductStatus } from '../state/workspace';
-import { ChevronIcon, CloseIcon, GridIcon, SearchIcon } from './icons';
+import { ChevronIcon, CloseIcon, GearIcon, GridIcon, SearchIcon } from './icons';
+
+
+const RAIL_KEY = 'pricer.sidebarCollapsed';
 
 interface Props {
   view: 'overview' | 'product' | 'settings';
@@ -11,6 +14,7 @@ interface Props {
   statuses: Record<string, ProductStatus>;
   onSelectProduct: (slug: string) => void;
   onOverview: () => void;
+  onSettings: () => void;
   /** Drawer state below the lg breakpoint; the sidebar is always shown above it. */
   open: boolean;
   onClose: () => void;
@@ -26,11 +30,29 @@ export default function Sidebar({
   statuses,
   onSelectProduct,
   onOverview,
+  onSettings,
   open,
   onClose,
 }: Props) {
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  /** Icon-only rail on wide screens; remembered per browser. */
+  const [rail, setRail] = useState(() => {
+    try {
+      return localStorage.getItem(RAIL_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleRail = () =>
+    setRail((r) => {
+      try {
+        localStorage.setItem(RAIL_KEY, r ? '0' : '1');
+      } catch {
+        /* storage unavailable: still toggles for this visit */
+      }
+      return !r;
+    });
 
   /** Matching products, each with the price lists to show under it. */
   const filtered = useMemo(() => {
@@ -54,14 +76,14 @@ export default function Sidebar({
       {open && <div className="fixed inset-0 z-30 bg-slate-900/30 lg:hidden" onClick={onClose} />}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-[272px] shrink-0 flex-col bg-[#f5f6fa] transition-transform lg:static lg:translate-x-0 ${
+        className={`glass fixed inset-y-3 left-3 z-40 flex w-[264px] shrink-0 flex-col overflow-hidden rounded-3xl transition-[transform,width] duration-200 lg:static lg:translate-x-0 ${
           open ? 'translate-x-0 shadow-xl' : '-translate-x-full'
-        }`}
+        } ${rail ? 'sb-rail lg:w-[76px]' : ''}`}
       >
         {/* ---------------------------------------------------- title */}
-        <div className="flex items-start gap-2 px-5 pb-3 pt-6">
-          <div className="min-w-0 flex-1">
-            <div className="text-xl font-bold tracking-tight text-slate-900">Pricer Studio</div>
+        <div className="sb-title flex items-center gap-2.5 px-5 pb-3 pt-5">
+          <div className="sb-text min-w-0 flex-1">
+            <div className="text-lg font-bold tracking-tight text-slate-900">Pricer Studio</div>
             <div className="mt-0.5 text-xs text-slate-400">
               {draftedCount} of {PRICE_LISTS.length} price lists drafted
             </div>
@@ -69,18 +91,65 @@ export default function Sidebar({
           <button className="rounded-md p-1 text-slate-400 hover:bg-white lg:hidden" onClick={onClose} aria-label="Close">
             <CloseIcon />
           </button>
+          <button
+            className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/80 hover:text-slate-700 lg:flex"
+            onClick={toggleRail}
+            aria-label={rail ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={rail ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <ChevronIcon width={16} height={16} className={rail ? '' : 'rotate-180'} />
+          </button>
         </div>
 
-        {/* Overview lives in the icon rail on wide screens; the drawer needs its own. */}
-        <div className="px-3 lg:hidden">
-          <NavItem active={view === 'overview'} onClick={onOverview}>
-            <GridIcon className="text-slate-500" />
-            <span className="flex-1">Overview</span>
-          </NavItem>
+        {/* ---------------------------------------------------- menu */}
+        <div className="space-y-0.5 px-3">
+          <button className="menu-item" title="Overview" aria-current={view === 'overview' ? 'page' : undefined} onClick={onOverview}>
+            <GridIcon width={16} height={16} />
+            <span>Overview</span>
+          </button>
         </div>
+
+        {/* Collapsed: a search button that reopens the sidebar, then one image per product. */}
+        <div className="sb-rail-only hidden px-3 pt-2">
+          <button className="menu-item" title="Price lists" onClick={toggleRail}>
+            <SearchIcon width={16} height={16} />
+          </button>
+        </div>
+        <ul className="sb-rail-only hidden min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3 pt-1">
+          {PRODUCTS.map((product) => {
+            const lists = priceListsOf(product);
+            // A product priced per option opens the list already open, else its first.
+            const current = lists.find((l) => view === 'product' && l.key === activeSlug);
+            const target = current ?? lists[0];
+            const drafted = lists.some((l) => statuses[l.key]?.hasDraft);
+            const unsynced = lists.some((l) => statuses[l.key]?.unsynced);
+            return (
+              <li key={product.slug}>
+                <button
+                  onClick={() => onSelectProduct(target.key)}
+                  title={`${product.name} · ${product.english}${lists.length > 1 ? ` (${lists.length} price lists)` : ''}`}
+                  aria-label={product.english}
+                  aria-current={current ? 'page' : undefined}
+                  className={`relative flex h-11 w-full items-center justify-center rounded-xl transition ${
+                    current ? 'bg-white/90 shadow-glass ring-1 ring-brand-300' : 'hover:bg-white/70'
+                  }`}
+                >
+                  <ProductThumb product={product} size={30} />
+                  {(unsynced || drafted) && (
+                    <span
+                      className={`absolute right-1.5 top-1.5 h-2 w-2 rounded-full ring-2 ring-white ${
+                        unsynced ? 'bg-amber-400' : 'bg-brand-500'
+                      }`}
+                    />
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
 
         {/* ---------------------------------------------------- search */}
-        <div className="px-4 pb-1 pt-2">
+        <div className="sb-full px-4 pb-1 pt-2">
           <label className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-slate-400 shadow-sm ring-1 ring-slate-200/70 focus-within:ring-brand-300">
             <SearchIcon width={15} height={15} />
             <input
@@ -93,7 +162,7 @@ export default function Sidebar({
         </div>
 
         {/* ---------------------------------------------------- products */}
-        <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
+        <nav className="sb-full min-h-0 flex-1 overflow-y-auto px-3 pb-6">
           {CATEGORIES.map((cat) => {
             const items = filtered.filter(({ product }) => product.category === cat.id);
             if (items.length === 0) return null;
@@ -145,6 +214,13 @@ export default function Sidebar({
           {filtered.length === 0 && <div className="px-2 py-8 text-center text-xs text-slate-400">No products match.</div>}
         </nav>
 
+        <div className="border-t border-white/70 px-3 py-2.5">
+          <button className="menu-item" title="Settings" aria-current={view === 'settings' ? 'page' : undefined} onClick={onSettings}>
+            <GearIcon width={16} height={16} />
+            <span>Settings</span>
+          </button>
+        </div>
+
       </aside>
     </>
   );
@@ -155,7 +231,7 @@ function NavItem({ active, onClick, children }: { active: boolean; onClick: () =
     <button
       onClick={onClick}
       className={`group flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition ${
-        active ? 'bg-white text-slate-900 shadow-card' : 'text-slate-600 hover:bg-white/70'
+        active ? 'bg-white/90 text-slate-900 shadow-glass ring-1 ring-brand-200' : 'text-slate-600 hover:bg-white/60'
       }`}
     >
       {children}

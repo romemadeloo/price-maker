@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
-import NavRail, { type RailTarget } from './components/NavRail';
 import TopBar from './components/TopBar';
 import type { SyncScope } from './components/SyncPrices';
 import { useBulkCompare } from './hooks/useBulkCompare';
@@ -143,6 +142,10 @@ export default function App() {
     (mode: CompareMode, srv: Server, snapshot: ProductionSnapshot) => saveSnapshot(snapshotKey(slug, mode, srv), snapshot),
     [saveSnapshot, slug],
   );
+  // The accent colour follows the server: orange while working against dev.
+  useEffect(() => {
+    document.documentElement.dataset.server = server;
+  }, [server]);
   const setServer = useCallback((next: Server) => setWorkspace((ws) => ({ ...ws, server: next })), []);
   // Shared with everyone through the database (see withSettings).
   const setOptions = useCallback((options: EngineOptions) => setWorkspace((ws) => withSettings(ws, { options })), []);
@@ -185,24 +188,7 @@ export default function App() {
   const draft = workspace.drafts[slug];
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f5f6fa]">
-      <NavRail
-        active={
-          view === 'overview' || view === 'settings'
-            ? view
-            : tab === 'compare' || tab === 'studio' || tab === 'table'
-              ? tab
-              : null
-        }
-        server={server}
-        onNavigate={(target: RailTarget) => {
-          if (target === 'overview' || target === 'settings') setView(target);
-          else {
-            setView('product');
-            setTab(target);
-          }
-        }}
-      />
+    <div className="flex h-screen gap-3 overflow-hidden p-0 lg:p-3">
       <Sidebar
         view={view}
         activeSlug={slug}
@@ -210,6 +196,10 @@ export default function App() {
         onSelectProduct={selectProduct}
         onOverview={() => {
           setView('overview');
+          setNavOpen(false);
+        }}
+        onSettings={() => {
+          setView('settings');
           setNavOpen(false);
         }}
         open={navOpen}
@@ -230,6 +220,8 @@ export default function App() {
           draftedIn={draftedIn}
           server={server}
           onServer={setServer}
+          serverUrls={workspace.serverUrls}
+          onServerUrls={setServerUrls}
         />
         {view === 'settings' ? (
           <Settings

@@ -36,7 +36,7 @@ export default function ImportDialog({ open, onClose, onImport }: Props) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={'Base Area\t10\t20\t30\n100\t1,900\t3,600\t5,300'}
-          className="min-h-[240px] flex-1 resize-none rounded-md border border-slate-300 p-2 font-mono text-xs outline-none focus:border-blue-500"
+          className="min-h-[240px] flex-1 resize-none rounded-md border border-slate-300 p-2 font-mono text-xs outline-none focus:border-brand-500"
         />
 
         <div className="flex items-center justify-between gap-3">

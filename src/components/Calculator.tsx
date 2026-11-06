@@ -131,7 +131,7 @@ export default function Calculator({ result, options, studioAdjustment = null }:
                 <>
                   Overriding the detected ₩{detectedUnit}.{' '}
                   <button
-                    className="font-medium text-blue-600 underline-offset-2 hover:underline"
+                    className="font-medium text-brand-600 underline-offset-2 hover:underline"
                     onClick={() => setChosenUnit(null)}
                   >
                     Use detected
@@ -484,9 +484,9 @@ function Coverage({
               key={v}
               className={`rounded px-1.5 py-0.5 text-[11px] tabular-nums transition-colors ${
                 requested === v
-                  ? 'bg-blue-600 font-medium text-white'
+                  ? 'bg-brand-600 font-medium text-white'
                   : resolution?.lower === v || resolution?.upper === v
-                    ? 'bg-blue-50 font-medium text-blue-700 ring-1 ring-inset ring-blue-200'
+                    ? 'bg-brand-50 font-medium text-brand-700 ring-1 ring-inset ring-brand-200'
                     : 'bg-slate-100 text-slate-500'
               }`}
             >
@@ -598,7 +598,7 @@ function Field({
         <span className="text-xs font-medium text-slate-700">{label}</span>
         {action && (
           <button
-            className="text-[11px] font-medium text-blue-600 underline-offset-2 hover:underline"
+            className="text-[11px] font-medium text-brand-600 underline-offset-2 hover:underline"
             onClick={(e) => {
               e.preventDefault();
               action.onClick();
@@ -618,7 +618,7 @@ function Field({
           inputMode="decimal"
           className={`h-9 w-full rounded-md border bg-white px-2.5 text-sm tabular-nums text-slate-900
                       placeholder:text-slate-300 outline-none transition-colors
-                      focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${
+                      focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 ${
                         tone === 'override' ? 'border-amber-300 bg-amber-50/40' : 'border-slate-300'
                       } ${suffix ? 'pr-9' : ''}`}
         />

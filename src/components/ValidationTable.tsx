@@ -242,7 +242,7 @@ function IssueList({ issues, onGoToCell }: { issues: Issue[]; onGoToCell: Props[
           Data integrity — {errors.length} error(s), {warnings.length} warning(s)
         </span>
         {errors.length + warnings.length > 8 && (
-          <button className="text-xs text-blue-600 hover:underline" onClick={() => setExpanded((v) => !v)}>
+          <button className="text-xs text-brand-600 hover:underline" onClick={() => setExpanded((v) => !v)}>
             {expanded ? 'Show less' : `Show all ${errors.length + warnings.length}`}
           </button>
         )}

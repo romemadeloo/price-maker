@@ -6,10 +6,12 @@ import type { BulkCompare } from '../hooks/useBulkCompare';
 import type { PriceList } from '../lib/products';
 import SyncPrices, { type SyncScope } from './SyncPrices';
 import type { Server } from '../lib/production';
+import ApiSetter from './ApiSetter';
+import type { ServerUrlsProps } from './ServerUrlsForm';
 
 export const USER_NAME_INPUT_ID = 'pricer-user-name';
 
-interface Props {
+interface Props extends ServerUrlsProps {
   sync: CloudSync;
   browserSaved: boolean;
   /** Changes not in the shared database yet. */
@@ -36,59 +38,48 @@ export default function TopBar({
   pendingCount,
   userName,
   setUserName,
-  options,
-  setOptions,
   bulk,
   draftedIn,
   server,
   onServer,
+  serverUrls,
+  onServerUrls,
 }: Props) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 px-4 pt-4 sm:px-7">
+    <div className="glass relative z-20 mx-3 mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl px-3 py-2 lg:mx-0 lg:mt-0">
       <div
-        className="flex items-center gap-2 rounded-full bg-white py-1 pl-3.5 pr-1 text-xs text-slate-500 shadow-sm ring-1 ring-slate-200/70"
+        className="flex items-center gap-2 text-xs font-medium text-slate-500"
         title="Which musticker server comparisons and quotes use"
       >
         Server
-        <div className="seg bg-white">
+        <div className="flex rounded-xl bg-white/70 p-0.5 ring-1 ring-white">
           {(
             [
               ['production', 'Production'],
               ['dev', 'Dev'],
             ] as [Server, string][]
           ).map(([value, label]) => (
-            <button key={value} aria-pressed={server === value} onClick={() => onServer(value)}>
+            <button
+              key={value}
+              aria-pressed={server === value}
+              onClick={() => onServer(value)}
+              className={`rounded-[10px] px-3 py-1 text-xs font-semibold transition-colors ${
+                server === value ? 'bg-brand-600 text-white shadow-md shadow-brand-600/30' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
               {label}
             </button>
           ))}
         </div>
       </div>
+      <ApiSetter serverUrls={serverUrls} onServerUrls={onServerUrls} server={server} />
+      <div className="flex-1" />
       <SyncStatus sync={sync} browserSaved={browserSaved} pendingCount={pendingCount} />
       <SyncPrices bulk={bulk} draftedIn={draftedIn} />
 
-      <label
-        className="flex items-center gap-2 rounded-full bg-white py-1 pl-3.5 pr-1 text-xs text-slate-500 shadow-sm ring-1 ring-slate-200/70"
-        title="Decimal places for the exported price-per-mm² rates"
-      >
-        Rate dp
-        <DpInput
-          label="min"
-          value={options.minDecimalPlaces}
-          min={0}
-          max={options.maxDecimalPlaces}
-          onChange={(v) => setOptions({ ...options, minDecimalPlaces: Math.max(0, v) })}
-        />
-        <DpInput
-          label="max"
-          value={options.maxDecimalPlaces}
-          min={options.minDecimalPlaces}
-          max={30}
-          onChange={(v) => setOptions({ ...options, maxDecimalPlaces: Math.min(30, v) })}
-        />
-      </label>
 
-      <label className="flex items-center gap-2 rounded-full bg-white py-1 pl-1 pr-3 text-xs text-slate-500 shadow-sm ring-1 ring-slate-200/70">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-orange-400 text-[11px] font-semibold text-white">
+      <label className="flex items-center gap-2 rounded-full bg-white/70 py-1 pl-1 pr-3 text-xs text-slate-500 ring-1 ring-white">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-orange-400 text-[11px] font-semibold text-white">
           {userName.trim().charAt(0).toUpperCase() || '?'}
         </span>
         <input
@@ -165,34 +156,5 @@ function SyncStatus({ sync, browserSaved, pendingCount }: { sync: CloudSync; bro
         </form>
       )}
     </div>
-  );
-}
-
-function DpInput({
-  label,
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <span className="flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 ring-1 ring-slate-200">
-      <span className="text-[10px] uppercase text-slate-400">{label}</span>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value) || 0)}
-        className="no-spin w-7 bg-transparent text-right text-xs font-medium tabular-nums text-slate-800 focus:outline-none"
-        aria-label={`${label} decimal places`}
-      />
-    </span>
   );
 }

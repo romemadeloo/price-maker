@@ -47,7 +47,8 @@ const OVERSCAN = 8;
 const FOOTER_H = 48;
 
 /** Sheets' selection blue. */
-const BLUE = '#1a73e8';
+/** Selection colour: follows the accent (blue on production, orange on dev). */
+const BLUE = 'rgb(var(--brand-600))';
 
 export interface FocusRequest {
   rowIndex: number;
@@ -667,9 +668,9 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
 
   const headerTone = (selected: boolean, whole: boolean) =>
     whole && selected
-      ? 'bg-[#0b57d0] text-white'
+      ? 'bg-brand-700 text-white'
       : selected
-        ? 'bg-[#d3e3fd] text-slate-900 font-semibold'
+        ? 'bg-brand-100 text-slate-900 font-semibold'
         : 'bg-[#f8f9fa] text-slate-500';
 
   const nameBox = nCells === 1 ? cellName(focus.r, focus.c) : `${cellName(sel.r1, sel.c1)}:${cellName(sel.r2, sel.c2)}`;
@@ -712,7 +713,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
         }}
         title={title}
       >
-        {inSel && !isFocus && <span className="pointer-events-none absolute inset-0 bg-[#1a73e8]/10" />}
+        {inSel && !isFocus && <span className="pointer-events-none absolute inset-0 bg-brand-600/10" />}
         {tone.flag && (
           <span className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[6px] border-t-[6px] border-l-transparent border-t-red-500" />
         )}
@@ -984,7 +985,7 @@ export default function SpreadsheetGrid({ sheet, dispatch, canUndo, canRedo, par
                 value={moreRows}
                 onChange={(e) => setMoreRows(e.target.value.replace(/[^\d]/g, ''))}
                 onContextMenu={(e) => e.stopPropagation()}
-                className="w-16 rounded border border-[#c4c7c5] px-2 py-1 text-right tabular-nums outline-none focus:border-[#1a73e8]"
+                className="w-16 rounded border border-[#c4c7c5] px-2 py-1 text-right tabular-nums outline-none focus:border-brand-600"
                 aria-label="Number of rows to add"
               />
               more rows at bottom

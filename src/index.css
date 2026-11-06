@@ -11,13 +11,56 @@ html, body, #root {
  * much room so their last rows can scroll clear of it.
  */
 :root {
-  --dock-clear: 80px;
+  --dock-clear: 16px;
+  /* Accent colour (Tailwind blue), and the tints behind the glass. */
+  --brand-50: 239 246 255;
+  --brand-100: 219 234 254;
+  --brand-200: 191 219 254;
+  --brand-300: 147 197 253;
+  --brand-400: 96 165 250;
+  --brand-500: 59 130 246;
+  --brand-600: 37 99 235;
+  --brand-700: 29 78 216;
+  --brand-800: 30 64 175;
+  --brand-900: 30 58 138;
+  --glass-tint: 40 80 160;
+  --wash-a: #dbe7ff;
+  --wash-b: #e3ecff;
+  --wash-0: #eef3ff;
+  --wash-1: #f7f9fd;
+  --wash-2: #edf2fc;
+}
+
+/* Working against the dev server: everything accented turns orange, so it is never mistaken for production. */
+:root[data-server='dev'] {
+  --brand-50: 255 247 237;
+  --brand-100: 255 237 213;
+  --brand-200: 254 215 170;
+  --brand-300: 253 186 116;
+  --brand-400: 251 146 60;
+  --brand-500: 249 115 22;
+  --brand-600: 234 88 12;
+  --brand-700: 194 65 12;
+  --brand-800: 154 52 18;
+  --brand-900: 124 45 18;
+  --glass-tint: 160 80 30;
+  --wash-a: #ffe4cc;
+  --wash-b: #ffeedd;
+  --wash-0: #fff4ea;
+  --wash-1: #fffaf6;
+  --wash-2: #fdf1e6;
 }
 
 body {
   margin: 0;
-  @apply bg-[#f5f6fa] font-sans text-slate-900;
+  @apply font-sans text-slate-900;
   -webkit-font-smoothing: antialiased;
+  /* Soft blue wash behind the frosted panels. */
+  background:
+    radial-gradient(900px 600px at 8% 0%, var(--wash-a) 0%, transparent 60%),
+    radial-gradient(800px 600px at 100% 100%, var(--wash-b) 0%, transparent 55%),
+    linear-gradient(135deg, var(--wash-0) 0%, var(--wash-1) 50%, var(--wash-2) 100%);
+  background-attachment: fixed;
 }
 
 /* Compact, dense scrollbars so the grid feels like a spreadsheet. */
@@ -37,14 +80,22 @@ body {
            transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300
            disabled:cursor-not-allowed disabled:opacity-40;
   }
-  .btn-default { @apply border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50; }
-  .btn-primary { @apply border-brand-600 bg-brand-600 text-white hover:bg-brand-700; }
+  .btn-default { @apply border-white/80 bg-white/70 text-slate-700 backdrop-blur hover:border-slate-300 hover:bg-slate-50; }
+  .btn-primary { @apply border-brand-600 bg-brand-600 text-white shadow-md shadow-brand-600/30 hover:bg-brand-700; }
   .btn-danger  { @apply border-red-200 bg-white text-red-600 hover:bg-red-50; }
   .btn-warn    { @apply border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100; }
   .btn-ghost   { @apply border-transparent bg-transparent text-slate-600 shadow-none hover:bg-slate-100; }
 
-  /* Borderless white card on the gray page, as in the dashboard reference. */
-  .card { @apply rounded-2xl bg-white shadow-card; }
+  /* Frosted-glass panel: translucent white over the blue wash. */
+  .glass { @apply border border-white/80 bg-white/60 shadow-glass backdrop-blur-xl; }
+  .card { @apply glass rounded-2xl; }
+
+  /* Sidebar menu item; the active one is a filled blue pill. */
+  .menu-item { @apply flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] font-medium text-slate-600 transition-colors hover:bg-white/70 hover:text-slate-900; }
+  .menu-item[aria-current='page'] { @apply bg-brand-600 text-white shadow-md shadow-brand-600/30 hover:bg-brand-600 hover:text-white; }
+
+  /* Coloured icon tile on stat cards. */
+  .icon-tile { @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-white shadow-sm; }
 
   /* Segmented control: blue-outlined, the active option filled ("Day | Month | Year"). */
   .seg { @apply inline-flex overflow-hidden rounded-lg border border-brand-500; }
@@ -58,4 +109,21 @@ body {
 
   /* A small change pill under a number: ▲ 7.00%. */
   .delta { @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold; }
+}
+
+/*
+ * Collapsed sidebar (wide screens only): an icon rail. Labels, group headings
+ * and the product list hide; the Validation count shrinks to a dot.
+ */
+@media (min-width: 1024px) {
+  .sb-rail .sb-text,
+  .sb-rail .sb-full,
+  .sb-rail .menu-group,
+  .sb-rail .menu-item > span:not(.menu-badge) { display: none; }
+  .sb-rail .sb-rail-only { display: block; }
+  .sb-rail .sb-title { flex-direction: column; padding-left: 0; padding-right: 0; }
+  .sb-rail .menu-item { position: relative; justify-content: center; padding-left: 0; padding-right: 0; height: 40px; }
+  .sb-rail .menu-group + .menu-item,
+  .sb-rail [aria-label='Sections'] > div:has(.menu-group) { margin-top: 6px; }
+  .sb-rail .menu-badge { position: absolute; top: 6px; right: 12px; width: 8px; height: 8px; padding: 0; font-size: 0; }
 }
