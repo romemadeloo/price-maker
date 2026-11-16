@@ -1,5 +1,12 @@
 import { DEFAULT_ENGINE_OPTIONS, type EngineOptions, type SheetRow, type SheetState } from '../types';
-import { DEFAULT_PRODUCT_SLUG, findPriceList } from '../lib/products';
+import {
+  cleanCatalog,
+  configureCatalog,
+  DEFAULT_PRODUCT_SLUG,
+  EMPTY_CATALOG,
+  findPriceList,
+  type CatalogEdits,
+} from '../lib/products';
 import { compareDraft, normalizeServerUrl, STUDIO_ADJUSTMENT, type CompareSummary, type ProductionSnapshot } from '../lib/production';
 import { parseNumeric, parseSheet } from '../lib/parse';
 import { PRICE_UNITS, type PriceUnit } from '../lib/calculator';
@@ -49,6 +56,8 @@ export interface Workspace {
    * the default (DEFAULT_SERVER_URLS).
    */
   serverUrls: Partial<Record<Server, string>>;
+  /** Products added, renamed, switched off or removed — shared with everyone. */
+  catalog: CatalogEdits;
 }
 
 /** Keep only valid, normalized server URLs. */
@@ -77,6 +86,7 @@ export function emptyWorkspace(): Workspace {
     compareRounding: {},
     server: 'production',
     serverUrls: {},
+    catalog: EMPTY_CATALOG,
   };
 }
 
@@ -121,6 +131,9 @@ export function loadWorkspace(): Workspace {
 
   try {
     const stored = JSON.parse(raw) as Partial<Workspace>;
+    // Custom products must exist before their drafts are checked below.
+    const catalog = cleanCatalog(stored.catalog);
+    configureCatalog(catalog);
     const drafts: Record<string, ProductDraft> = {};
     for (const [slug, draft] of Object.entries(stored.drafts ?? {})) {
       if (findPriceList(slug) && isSheet(draft?.sheet)) {
@@ -147,6 +160,7 @@ export function loadWorkspace(): Workspace {
       userName: typeof stored.userName === 'string' ? stored.userName : '',
       server: stored.server === 'dev' ? 'dev' : 'production',
       serverUrls: cleanServerUrls(stored.serverUrls),
+      catalog,
       compareRounding: Object.fromEntries(
         Object.entries(stored.compareRounding ?? {}).filter(([, unit]) => (PRICE_UNITS as readonly number[]).includes(unit)),
       ),
@@ -218,14 +232,14 @@ export function settingsRecord(workspace: Workspace): ProductionSnapshot {
     fetchedAt: now,
     savedAt: now,
     quotes: {},
-    settings: { options: workspace.options, compareRounding: workspace.compareRounding, serverUrls: workspace.serverUrls },
+    settings: { options: workspace.options, compareRounding: workspace.compareRounding, serverUrls: workspace.serverUrls, catalog: workspace.catalog },
   };
 }
 
 /** Change shared settings: apply them, and queue the settings record for the database. */
 export function withSettings(
   workspace: Workspace,
-  change: Partial<Pick<Workspace, 'options' | 'compareRounding' | 'serverUrls'>>,
+  change: Partial<Pick<Workspace, 'options' | 'compareRounding' | 'serverUrls' | 'catalog'>>,
 ): Workspace {
   const next = { ...workspace, ...change };
   return {
@@ -472,7 +486,7 @@ export function mergeRemote(
     changed = true;
   }
 
-  let shared: Pick<Workspace, 'options' | 'compareRounding' | 'serverUrls'> | null = null;
+  let shared: Pick<Workspace, 'options' | 'compareRounding' | 'serverUrls' | 'catalog'> | null = null;
   for (const [slug, snapshot] of Object.entries(remote.snapshots)) {
     if (!isKnownKey(slug) || workspace.dirtySnapshots[slug]) continue;
     if (snapshotStamp(snapshot) > snapshotStamp(snapshots[slug])) {
@@ -487,6 +501,7 @@ export function mergeRemote(
             ),
           ) as Record<string, PriceUnit>,
           serverUrls: cleanServerUrls(snapshot.settings.serverUrls),
+          catalog: cleanCatalog(snapshot.settings.catalog),
         };
       }
     }

@@ -1,20 +1,21 @@
 import { useMemo, useState } from 'react';
-import { CATEGORIES, PRICE_LISTS, PRODUCTS, priceListsOf, type PriceList, type Product } from '../lib/products';
+import { activePriceLists, CATEGORIES, PRODUCTS, priceListsOf, type PriceList, type Product } from '../lib/products';
 import Swatches from './Swatches';
 import ProductThumb from './ProductThumb';
 import type { ProductStatus } from '../state/workspace';
-import { ChevronIcon, CloseIcon, GearIcon, GridIcon, SearchIcon } from './icons';
+import { ChevronIcon, CloseIcon, GearIcon, GridIcon, SearchIcon, TableIcon } from './icons';
 
 
 const RAIL_KEY = 'pricer.sidebarCollapsed';
 
 interface Props {
-  view: 'overview' | 'product' | 'settings';
+  view: 'overview' | 'product' | 'settings' | 'products';
   activeSlug: string;
   statuses: Record<string, ProductStatus>;
   onSelectProduct: (slug: string) => void;
   onOverview: () => void;
   onSettings: () => void;
+  onProducts: () => void;
   /** Drawer state below the lg breakpoint; the sidebar is always shown above it. */
   open: boolean;
   onClose: () => void;
@@ -31,6 +32,7 @@ export default function Sidebar({
   onSelectProduct,
   onOverview,
   onSettings,
+  onProducts,
   open,
   onClose,
 }: Props) {
@@ -58,7 +60,7 @@ export default function Sidebar({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matches = (...texts: string[]) => !q || texts.some((t) => t.toLowerCase().includes(q));
-    return PRODUCTS.flatMap((product) => {
+    return PRODUCTS.filter((p) => !p.inactive).flatMap((product) => {
       const lists = priceListsOf(product);
       if (matches(product.name, product.english, product.slug)) return [{ product, lists }];
       // Searching a color or material ("gold", "투명") finds the price list it belongs to.
@@ -67,9 +69,11 @@ export default function Sidebar({
       );
       return hits.length > 0 ? [{ product, lists: hits }] : [];
     });
-  }, [query]);
+  }, [query, PRODUCTS]);
 
-  const draftedCount = PRICE_LISTS.filter((l) => statuses[l.key]?.hasDraft).length;
+  const allCollapsed = CATEGORIES.every((c) => collapsed[c.id]);
+  const activeLists = activePriceLists();
+  const draftedCount = activeLists.filter((l) => statuses[l.key]?.hasDraft).length;
 
   return (
     <>
@@ -85,7 +89,7 @@ export default function Sidebar({
           <div className="sb-text min-w-0 flex-1">
             <div className="text-lg font-bold tracking-tight text-slate-900">Pricer Studio</div>
             <div className="mt-0.5 text-xs text-slate-400">
-              {draftedCount} of {PRICE_LISTS.length} price lists drafted
+              {draftedCount} of {activeLists.length} price lists drafted
             </div>
           </div>
           <button className="rounded-md p-1 text-slate-400 hover:bg-white lg:hidden" onClick={onClose} aria-label="Close">
@@ -107,6 +111,10 @@ export default function Sidebar({
             <GridIcon width={16} height={16} />
             <span>Overview</span>
           </button>
+          <button className="menu-item" title="Products" aria-current={view === 'products' ? 'page' : undefined} onClick={onProducts}>
+            <TableIcon width={16} height={16} />
+            <span>Products</span>
+          </button>
         </div>
 
         {/* Collapsed: a search button that reopens the sidebar, then one image per product. */}
@@ -116,7 +124,7 @@ export default function Sidebar({
           </button>
         </div>
         <ul className="sb-rail-only hidden min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3 pt-1">
-          {PRODUCTS.map((product) => {
+          {PRODUCTS.filter((p) => !p.inactive).map((product) => {
             const lists = priceListsOf(product);
             // A product priced per option opens the list already open, else its first.
             const current = lists.find((l) => view === 'product' && l.key === activeSlug);
@@ -159,6 +167,16 @@ export default function Sidebar({
               className="w-full bg-transparent text-[13px] text-slate-800 placeholder:text-slate-400 focus:outline-none"
             />
           </label>
+          {!query && (
+            <div className="mt-1.5 flex justify-end px-1">
+              <button
+                className="text-[11px] font-medium text-slate-400 hover:text-slate-700"
+                onClick={() => setCollapsed(Object.fromEntries(CATEGORIES.map((c) => [c.id, !allCollapsed])))}
+              >
+                {allCollapsed ? 'Expand all' : 'Collapse all'}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ---------------------------------------------------- products */}

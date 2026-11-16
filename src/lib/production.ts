@@ -136,7 +136,7 @@ export interface ProductionSnapshot {
    * Only on the shared-settings record (see SETTINGS_KEY in state/workspace),
    * which rides on snapshot storage: settings everyone shares.
    */
-  settings?: { options: unknown; compareRounding: Record<string, number>; serverUrls?: Partial<Record<Server, string>> };
+  settings?: { options: unknown; compareRounding: Record<string, number>; serverUrls?: Partial<Record<Server, string>>; catalog?: unknown };
   /** When this snapshot was last written (a merge keeps fetchedAt). Decides which copy is newer when syncing. */
   savedAt?: string;
   /** Keyed by `sizeKey(width, height)`. */

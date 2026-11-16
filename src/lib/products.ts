@@ -27,6 +27,10 @@ export interface Product {
    * own price list (draft + comparison); the first is the default.
    */
   variants?: Variant[];
+  /** Added in this app rather than part of the built-in musticker catalog. */
+  custom?: boolean;
+  /** Switched off: kept (with its drafts) but left out of the overview, comparisons and sync. */
+  inactive?: boolean;
 }
 
 /** A production option — a color (`color_id`) or a material (`material_id`). */
@@ -156,13 +160,13 @@ const SHEET_MATERIALS: Variant[] = [
   }),
 ];
 
-export const CATEGORIES: Category[] = [
+const BUILTIN_CATEGORIES: Category[] = [
   { id: 'stickers', name: '스티커', english: 'Stickers' },
   { id: 'roll-stickers', name: '롤 스티커', english: 'Roll stickers' },
   { id: 'sheet-stickers', name: '판스티커', english: 'Sheet stickers' },
 ];
 
-export const PRODUCTS: Product[] = [
+const BUILTIN_PRODUCTS: Product[] = [
   { slug: 'die-cut-sticker', category: 'stickers', name: '자유형 조각스티커', english: 'Die-cut sticker' },
   { slug: 'circle-sticker', category: 'stickers', name: '원형 스티커', english: 'Circle sticker' },
   { slug: 'rectangle-sticker', category: 'stickers', name: '직사각형 스티커', english: 'Rectangle sticker' },
@@ -249,6 +253,76 @@ export const PRODUCTS: Product[] = [
 ];
 
 /* ------------------------------------------------------------------ */
+/* Catalog edits: adding, editing, deactivating and removing products   */
+/* ------------------------------------------------------------------ */
+
+/** A product added in this app. Its slug is also the quotation path segment. */
+export interface CustomProduct {
+  slug: string;
+  category: CategoryId;
+  name: string;
+  english: string;
+}
+
+/**
+ * What this workspace changed about the built-in catalog. Shared with everyone
+ * through the settings record, so every browser shows the same products.
+ */
+export interface CatalogEdits {
+  custom: CustomProduct[];
+  /** Renames and category moves, for built-in and custom products alike. */
+  overrides: Record<string, Partial<Pick<Product, 'name' | 'english' | 'category'>>>;
+  /** Slugs switched off. */
+  inactive: string[];
+  /** Built-in slugs removed from the catalog. */
+  removed: string[];
+}
+
+export const EMPTY_CATALOG: CatalogEdits = { custom: [], overrides: {}, inactive: [], removed: [] };
+
+const CATEGORY_IDS = new Set<string>(BUILTIN_CATEGORIES.map((c) => c.id));
+const isText = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter(isText) : []);
+
+/** A product slug: lowercase words joined by dashes — safe in a URL and in a storage key. */
+export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Keep only well-formed catalog edits (storage and the server are untrusted). */
+export function cleanCatalog(value: unknown): CatalogEdits {
+  const src = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const custom: CustomProduct[] = [];
+  const seen = new Set<string>(BUILTIN_PRODUCTS.map((p) => p.slug));
+  for (const c of Array.isArray(src.custom) ? (src.custom as Partial<CustomProduct>[]) : []) {
+    if (!c || !isText(c.slug) || !SLUG_PATTERN.test(c.slug) || seen.has(c.slug)) continue;
+    if (!isText(c.name) || !CATEGORY_IDS.has(String(c.category))) continue;
+    seen.add(c.slug);
+    custom.push({
+      slug: c.slug,
+      category: c.category as CategoryId,
+      name: c.name.trim(),
+      english: isText(c.english) ? c.english.trim() : c.name.trim(),
+    });
+  }
+  const overrides: CatalogEdits['overrides'] = {};
+  const rawOverrides = (src.overrides && typeof src.overrides === 'object' ? src.overrides : {}) as Record<
+    string,
+    Record<string, unknown>
+  >;
+  for (const [slug, o] of Object.entries(rawOverrides)) {
+    if (!o || typeof o !== 'object') continue;
+    const out: CatalogEdits['overrides'][string] = {};
+    if (isText(o.name)) out.name = o.name.trim();
+    if (isText(o.english)) out.english = o.english.trim();
+    if (CATEGORY_IDS.has(String(o.category))) out.category = o.category as CategoryId;
+    if (Object.keys(out).length) overrides[slug] = out;
+  }
+  return { custom, overrides, inactive: strings(src.inactive), removed: strings(src.removed) };
+}
+
+export const CATEGORIES: Category[] = BUILTIN_CATEGORIES;
+export let PRODUCTS: Product[] = BUILTIN_PRODUCTS;
+
+/* ------------------------------------------------------------------ */
 /* Price lists: what owns a draft                                      */
 /* ------------------------------------------------------------------ */
 
@@ -268,19 +342,91 @@ export interface PriceList {
 
 export const VARIANT_SEPARATOR = '~';
 
-export const PRICE_LISTS: PriceList[] = PRODUCTS.flatMap((product): PriceList[] =>
-  product.variants
-    ? product.variants.map((variant, i) => ({
-        key: i === 0 ? product.slug : `${product.slug}${VARIANT_SEPARATOR}${variant.id}`,
-        product,
-        variant,
-      }))
-    : [{ key: product.slug, product, variant: null }],
-);
+function buildPriceLists(products: Product[]): PriceList[] {
+  return products.flatMap((product): PriceList[] =>
+    product.variants
+      ? product.variants.map((variant, i) => ({
+          key: i === 0 ? product.slug : `${product.slug}${VARIANT_SEPARATOR}${variant.id}`,
+          product,
+          variant,
+        }))
+      : [{ key: product.slug, product, variant: null }],
+  );
+}
 
-const BY_KEY = new Map(PRICE_LISTS.map((l) => [l.key, l]));
+export let PRICE_LISTS: PriceList[] = buildPriceLists(PRODUCTS);
 
-export const DEFAULT_PRODUCT_SLUG = PRODUCTS[0].slug;
+let BY_KEY = new Map(PRICE_LISTS.map((l) => [l.key, l]));
+let CURRENT_EDITS: CatalogEdits = EMPTY_CATALOG;
+
+export const DEFAULT_PRODUCT_SLUG = BUILTIN_PRODUCTS[0].slug;
+
+/**
+ * Apply catalog edits to the built-in catalog. Cheap when nothing changed, so
+ * the app can call it on every render (like configureServers). `PRODUCTS` and
+ * `PRICE_LISTS` are live bindings: importers see the new arrays.
+ */
+export function configureCatalog(edits: CatalogEdits): void {
+  if (edits === CURRENT_EDITS) return;
+  CURRENT_EDITS = edits;
+  const removed = new Set(edits.removed);
+  const inactive = new Set(edits.inactive);
+  const base: Product[] = [
+    ...BUILTIN_PRODUCTS.filter((p) => !removed.has(p.slug)),
+    ...edits.custom.map((c): Product => ({ ...c, custom: true })),
+  ];
+  PRODUCTS = base.map((p) => {
+    const o = edits.overrides[p.slug];
+    const off = inactive.has(p.slug);
+    return o || off ? { ...p, ...o, ...(off ? { inactive: true } : {}) } : p;
+  });
+  PRICE_LISTS = buildPriceLists(PRODUCTS);
+  BY_KEY = new Map(PRICE_LISTS.map((l) => [l.key, l]));
+}
+
+/** Price lists of products that are switched on. */
+export function activePriceLists(): PriceList[] {
+  return PRICE_LISTS.filter((l) => !l.product.inactive);
+}
+
+/** Why a slug cannot be used for a new product, or null when it is free. */
+export function slugProblem(slug: string): string | null {
+  if (!SLUG_PATTERN.test(slug)) return 'Use lowercase letters, numbers and dashes, e.g. “sticker-pack”.';
+  if (BUILTIN_PRODUCTS.some((p) => p.slug === slug) || PRODUCTS.some((p) => p.slug === slug)) {
+    return 'Another product already uses this slug.';
+  }
+  return null;
+}
+
+/** Add a product. */
+export function addProduct(edits: CatalogEdits, product: CustomProduct): CatalogEdits {
+  return { ...edits, custom: [...edits.custom, product] };
+}
+
+/** Rename or move a product. */
+export function editProduct(
+  edits: CatalogEdits,
+  slug: string,
+  change: Partial<Pick<Product, 'name' | 'english' | 'category'>>,
+): CatalogEdits {
+  return { ...edits, overrides: { ...edits.overrides, [slug]: { ...edits.overrides[slug], ...change } } };
+}
+
+export function setProductActive(edits: CatalogEdits, slug: string, active: boolean): CatalogEdits {
+  const rest = edits.inactive.filter((s) => s !== slug);
+  return { ...edits, inactive: active ? rest : [...rest, slug] };
+}
+
+/** Remove a product from the catalog. */
+export function removeProduct(edits: CatalogEdits, slug: string): CatalogEdits {
+  const overrides = { ...edits.overrides };
+  delete overrides[slug];
+  const inactive = edits.inactive.filter((s) => s !== slug);
+  if (edits.custom.some((c) => c.slug === slug)) {
+    return { ...edits, custom: edits.custom.filter((c) => c.slug !== slug), overrides, inactive };
+  }
+  return { ...edits, removed: [...new Set([...edits.removed, slug])], overrides, inactive };
+}
 
 export function findPriceList(key: string): PriceList | undefined {
   return BY_KEY.get(key);
@@ -291,7 +437,7 @@ export function findProduct(slug: string): Product | undefined {
 }
 
 export function priceListsOf(product: Product): PriceList[] {
-  return PRICE_LISTS.filter((l) => l.product === product);
+  return PRICE_LISTS.filter((l) => l.product.slug === product.slug);
 }
 
 /** "글자 커팅 스티커 · 금·은·동" — for titles and confirmations. */

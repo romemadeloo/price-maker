@@ -6,7 +6,19 @@ import { useBulkCompare } from './hooks/useBulkCompare';
 import Overview from './components/Overview';
 import Settings from './components/Settings';
 import ProductWorkspace, { type Tab } from './components/ProductWorkspace';
-import { findPriceList, PRICE_LISTS } from './lib/products';
+import ProductsManager from './components/ProductsManager';
+import {
+  activePriceLists,
+  addProduct,
+  configureCatalog,
+  editProduct,
+  findPriceList,
+  PRICE_LISTS,
+  priceListsOf,
+  removeProduct,
+  setProductActive,
+  type CustomProduct,
+} from './lib/products';
 import { configureServers, type ProductionSnapshot, type Server } from './lib/production';
 import { useCloudSync } from './hooks/useCloudSync';
 import {
@@ -28,7 +40,7 @@ const SAVE_DEBOUNCE_MS = 300;
 
 export default function App() {
   const [workspace, setWorkspace] = useState<Workspace>(loadWorkspace);
-  const [view, setView] = useState<'overview' | 'product' | 'settings'>('product');
+  const [view, setView] = useState<'overview' | 'product' | 'settings' | 'products'>('product');
   const [tab, setTab] = useState<Tab>('table');
   const [navOpen, setNavOpen] = useState(false);
   const [saved, setSaved] = useState(true);
@@ -36,6 +48,8 @@ export default function App() {
   latest.current = workspace;
   // Server URLs from Settings, applied before anything below renders or fetches.
   configureServers(workspace.serverUrls);
+  // Products added, renamed, switched off or removed — likewise applied before rendering.
+  configureCatalog(workspace.catalog);
 
   // The active price list: a product, or one color group of it.
   const list = findPriceList(workspace.activeSlug) ?? PRICE_LISTS[0];
@@ -153,6 +167,38 @@ export default function App() {
     (serverUrls: Partial<Record<Server, string>>) => setWorkspace((ws) => withSettings(ws, { serverUrls })),
     [],
   );
+  const changeCatalog = useCallback(
+    (change: (edits: Workspace['catalog']) => Workspace['catalog']) =>
+      setWorkspace((ws) => withSettings(ws, { catalog: change(ws.catalog) })),
+    [],
+  );
+  const onAddProduct = useCallback((p: CustomProduct) => changeCatalog((c) => addProduct(c, p)), [changeCatalog]);
+  const onEditProduct = useCallback(
+    (target: string, change: Pick<CustomProduct, 'name' | 'english' | 'category'>) =>
+      changeCatalog((c) => editProduct(c, target, change)),
+    [changeCatalog],
+  );
+  const onSetProductActive = useCallback(
+    (target: string, active: boolean) => changeCatalog((c) => setProductActive(c, target, active)),
+    [changeCatalog],
+  );
+  const onDeleteProduct = useCallback(
+    (target: string) => {
+      // Its drafts go with it: queue their deletion for the shared database.
+      const keys = priceListsOf(PRICE_LISTS.find((l) => l.product.slug === target)!.product).map((l) => l.key);
+      setWorkspace((ws) => {
+        const drafts = { ...ws.drafts };
+        const dirty = { ...ws.dirty };
+        for (const k of keys) {
+          if (ws.drafts[k] || ws.versions[k]) dirty[k] = true;
+          delete drafts[k];
+        }
+        const next = withSettings({ ...ws, drafts, dirty }, { catalog: removeProduct(ws.catalog, target) });
+        return keys.includes(ws.activeSlug) ? { ...next, activeSlug: activePriceLists().find((l) => !keys.includes(l.key))?.key ?? next.activeSlug } : next;
+      });
+    },
+    [],
+  );
   const setUserName = useCallback((userName: string) => setWorkspace((ws) => ({ ...ws, userName })), []);
   const setCompareRounding = useCallback(
     (unit: PriceUnit) =>
@@ -167,8 +213,9 @@ export default function App() {
 
   const draftedIn = useCallback(
     (scope: SyncScope) =>
-      PRICE_LISTS.filter((l) => (scope === 'all' || l.product.category === scope) && workspace.drafts[l.key]),
-    [workspace.drafts],
+      activePriceLists().filter((l) => (scope === 'all' || l.product.category === scope) && workspace.drafts[l.key]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workspace.drafts, workspace.catalog],
   );
 
   const selectProduct = useCallback((next: string) => {
@@ -183,7 +230,7 @@ export default function App() {
     return out;
     // Options, names and the active slug do not affect statuses; skip recomputing on them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.drafts, workspace.snapshots, workspace.dirty, workspace.compareRounding, workspace.server]);
+  }, [workspace.drafts, workspace.snapshots, workspace.dirty, workspace.compareRounding, workspace.server, workspace.catalog]);
 
   const draft = workspace.drafts[slug];
 
@@ -200,6 +247,10 @@ export default function App() {
         }}
         onSettings={() => {
           setView('settings');
+          setNavOpen(false);
+        }}
+        onProducts={() => {
+          setView('products');
           setNavOpen(false);
         }}
         open={navOpen}
@@ -225,7 +276,20 @@ export default function App() {
         />
         {/* The page fills what the top bar leaves. */}
         <div className="min-h-0 flex-1">
-        {view === 'settings' ? (
+        {view === 'products' ? (
+          <ProductsManager
+            onAdd={onAddProduct}
+            onEdit={onEditProduct}
+            onSetActive={onSetProductActive}
+            onDelete={onDeleteProduct}
+            onOpenProduct={(key) => {
+              selectProduct(key);
+              setTab('table');
+            }}
+            onOpenNav={() => setNavOpen(true)}
+            draftedSlugs={new Set(PRICE_LISTS.filter((l) => workspace.drafts[l.key]).map((l) => l.product.slug))}
+          />
+        ) : view === 'settings' ? (
           <Settings
             serverUrls={workspace.serverUrls}
             onServerUrls={setServerUrls}

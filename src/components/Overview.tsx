@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { CATEGORIES, PRICE_LISTS, type CategoryId, type PriceList } from '../lib/products';
+import { activePriceLists, CATEGORIES, PRODUCTS, type CategoryId, type PriceList } from '../lib/products';
 import { groupDigits } from '../lib/decimal';
 import { DIFF } from '../lib/compareColors';
 import type { ProductStatus } from '../state/workspace';
@@ -52,7 +52,7 @@ export default function Overview({ statuses, onSelectProduct, onOpenCompare, onO
   const summaryOf = (status: ProductStatus | undefined) => (source === 'studio' ? status?.studioCompare : status?.compare) ?? null;
 
   const { compared, uncompared, undrafted } = useMemo(() => {
-    const entries: Entry[] = PRICE_LISTS.filter((l) => filter === 'all' || l.product.category === filter).map((list) => ({
+    const entries: Entry[] = activePriceLists().filter((l) => filter === 'all' || l.product.category === filter).map((list) => ({
       list,
       status: statuses[list.key],
     }));
@@ -62,7 +62,8 @@ export default function Overview({ statuses, onSelectProduct, onOpenCompare, onO
       uncompared: entries.filter((e) => e.status?.hasDraft && !summary(e)),
       undrafted: entries.filter((e) => !e.status?.hasDraft),
     };
-  }, [filter, statuses, source]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, statuses, source, PRODUCTS]);
 
 
   const showTip: ShowTip = (e, content) => setTip({ x: e.clientX, y: e.clientY, content });
